@@ -7,16 +7,26 @@
 #include <sys/types.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <errno.h>
 
 #define SEND_BUFFER_SIZE 2048
 
+void *get_in_addr(struct sockaddr *sa)
+{
+  if (sa->sa_family == AF_INET) {
+    return &(((struct sockaddr_in*)sa)->sin_addr);
+  }
+
+  return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
 
 /* TODO: client()
  * Open socket and send message from stdin.
  * Return 0 on success, non-zero on failure
-*/
-int client(char *server_ip, char *server_port) {
+ */
+int client(char *server_ip, char *server_port)
+{
   // Must "gracefully handle all errors returned by socket API". If the
   // function might set errno, call perror(). If the function does not set
   // errno, you can just print an error to std::err. "make sure to flush
@@ -25,50 +35,72 @@ int client(char *server_ip, char *server_port) {
   // Attempt to open a socket
   struct addrinfo hints, *serverinfo, *p;
 
-  memset(&hints, 0, sizeof hints); 
-  hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
-  hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
+  memset(&hints, 0, sizeof hints);
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
 
-  // Prepare addrinfo so we can send data to server
-  int err = getaddrinfo(server_ip, server_port, &hints, &serverinfo);
-  if (err != 0) {
-    fprintf(stderr, "Error getting addr info");
-    return EXIT_FAILURE;
+  int status = getaddrinfo(server_ip, server_port, &hints, &serverinfo);
+  if (status != 0)
+  {
+    fprintf(stderr, "Error getting address info. Error code: %d\n", status);
+    return 1;
   }
 
-  // Remark that the socket is IP agnostic?
-  int sock_fd = socket(serverinfo->ai_family, serverinfo->ai_socktype, serverinfo->ai_protocol);
-  if (sock_fd == -1) {
-    perror("Error opening socket fd");
-    return EXIT_FAILURE;
+  // loop through all the results and connect to the first we can
+  int sock_fd;
+  for (p = serverinfo; p != NULL; p = p->ai_next)
+  {
+    if ((sock_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+    {
+      perror("client: socket");
+      continue;
+    }
+
+    if (connect(sock_fd, p->ai_addr, p->ai_addrlen) == -1)
+    {
+      close(sock_fd);
+      perror("client: connect");
+      continue;
+    }
+
+    break;
   }
 
-  // Do we need to pass addrlen so that it can handle both IPv4 and IPv6?
-  err = connect(sock_fd, serverinfo->ai_addr, serverinfo->ai_addrlen);
-  if (err == -1) {
-    perror("Error connecting to server");
-    return EXIT_FAILURE;
+  if (p == NULL)
+  {
+    fprintf(stderr, "client: failed to connect\n");
+    return 2;
   }
+
+  char s[INET6_ADDRSTRLEN];
+  inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), s, sizeof s);
+  printf("client: connecting to %s\n", s);
+  freeaddrinfo(serverinfo); // all done with this structure
 
   // Read a message from stdin
   char msg[SEND_BUFFER_SIZE];
   int msg_len = read(STDIN_FILENO, msg, SEND_BUFFER_SIZE);
-  if (msg_len == -1) {
+  if (msg_len == -1)
+  {
     perror("Error reading message");
     return EXIT_FAILURE;
   }
-  
+  printf("Read %d bytes from stdin\n", msg_len);
+
   // Send the message. Sometimes we can't do it all at once
   int bytes_remaining = msg_len;
-  while (bytes_remaining > 0) {
+  while (bytes_remaining > 0)
+  {
     int start_char = msg_len - bytes_remaining;
-    
+
     int bytes_sent = send(sock_fd, msg, start_char, 0);
-    if (bytes_sent == -1) {
+    if (bytes_sent == -1)
+    {
       perror("Error sending message");
       return EXIT_FAILURE;
     }
-
+    printf("Sent %d bytes to server\n", bytes_sent);
+    exit(1);
     bytes_remaining -= bytes_sent;
   }
 
@@ -81,12 +113,14 @@ int client(char *server_ip, char *server_port) {
 /*
  * main()
  * Parse command-line arguments and call client function
-*/
-int main(int argc, char **argv) {
+ */
+int main(int argc, char **argv)
+{
   char *server_ip;
   char *server_port;
 
-  if (argc != 3) {
+  if (argc != 3)
+  {
     fprintf(stderr, "Usage: ./client-c [server IP] [server port] < [message]\n");
     exit(EXIT_FAILURE);
   }

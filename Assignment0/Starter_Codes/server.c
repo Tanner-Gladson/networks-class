@@ -7,7 +7,18 @@
 #include <sys/types.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <errno.h>
+
+// get sockaddr, IPv4 or IPv6:
+void *get_in_addr(struct sockaddr *sa)
+{
+  if (sa->sa_family == AF_INET) {
+    return &(((struct sockaddr_in*)sa)->sin_addr);
+  }
+
+  return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
 
 #define QUEUE_LENGTH 10
 #define RECV_BUFFER_SIZE 2048
@@ -64,6 +75,7 @@ int server(char *server_port) {
     perror("Could not listen");
     return EXIT_FAILURE;
   }
+  printf("Bound to socket. Waiting for connections...\n");
 
   // Clients can connect whenever, we'll be listening
   char rx_buffer[RECV_BUFFER_SIZE];
@@ -72,13 +84,15 @@ int server(char *server_port) {
     socklen_t sin_size = sizeof client_addr;
     int client_fd = accept(sock_fd, (struct sockaddr *)&client_addr, &sin_size);
     if (client_fd == -1) {
-        perror("accept");
+        perror("Could not accept client conenction");
         continue;
     }
 
     // TODO: is this necessary?
-    // char s[INET6_ADDRSTRLEN];
-    // inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr *)&client_addr), s, sizeof s);
+    printf("Accepted message");
+    char s[INET6_ADDRSTRLEN];
+    inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr *)&client_addr), s, sizeof s);
+    printf("server: got connection from %s\n", s);
 
     // Connection successful, so we can read off data
     int bytes_rx = recv(client_fd, rx_buffer, RECV_BUFFER_SIZE-1, 0);

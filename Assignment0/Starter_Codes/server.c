@@ -91,7 +91,7 @@ int server(char *server_port) {
     // TODO: is this necessary?
     printf("Accepted message");
     char s[INET6_ADDRSTRLEN];
-    inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr *)&client_addr), s, sizeof s);
+    inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr *)& client_addr), s, sizeof s);
     printf("server: got connection from %s\n", s);
 
     // Connection successful, so we can read off data

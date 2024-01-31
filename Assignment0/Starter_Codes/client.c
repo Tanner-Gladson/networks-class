@@ -88,12 +88,12 @@ int client(char *server_ip, char *server_port)
   printf("Read %d bytes from stdin\n", msg_len);
 
   // Send the message. Sometimes we can't do it all at once
+  int offset = 0;
   int bytes_remaining = msg_len;
   while (bytes_remaining > 0)
   {
-    int start_char = msg_len - bytes_remaining;
-
-    int bytes_sent = send(sock_fd, msg, start_char, 0);
+    int offset = msg_len - bytes_remaining;
+    int bytes_sent = send(sock_fd, msg+offset, bytes_remaining, 0);
     if (bytes_sent == -1)
     {
       perror("Error sending message");

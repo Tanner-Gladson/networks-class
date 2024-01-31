@@ -89,7 +89,7 @@ int server(char *server_port) {
     }
 
     // TODO: is this necessary?
-    printf("Accepted message");
+    printf("Accepted message\n");
     char s[INET6_ADDRSTRLEN];
     inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr *)& client_addr), s, sizeof s);
     printf("server: got connection from %s\n", s);
@@ -100,13 +100,13 @@ int server(char *server_port) {
       perror("Error reading message");
       continue;
     } else if (bytes_rx == 0) {
-      printf("Client closed connection");
+      printf("Client closed connection\n");
     }
 
     fwrite(rx_buffer, sizeof rx_buffer[0], bytes_rx, stdout);
     err = close(client_fd);
     if (err == -1) {
-      perror("Error closing client connection");
+      perror("Error closing client connection\n");
       continue;
     }
   }

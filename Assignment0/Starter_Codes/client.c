@@ -14,11 +14,12 @@
 
 void *get_in_addr(struct sockaddr *sa)
 {
-  if (sa->sa_family == AF_INET) {
-    return &(((struct sockaddr_in*)sa)->sin_addr);
+  if (sa->sa_family == AF_INET)
+  {
+    return &(((struct sockaddr_in *)sa)->sin_addr);
   }
 
-  return &(((struct sockaddr_in6*)sa)->sin6_addr);
+  return &(((struct sockaddr_in6 *)sa)->sin6_addr);
 }
 
 /* TODO: client()
@@ -74,38 +75,38 @@ int client(char *server_ip, char *server_port)
 
   char s[INET6_ADDRSTRLEN];
   inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), s, sizeof s);
-  printf("client: connecting to %s\n", s);
   freeaddrinfo(serverinfo); // all done with this structure
 
-  // Read a message from stdin
   char msg[SEND_BUFFER_SIZE];
-  int msg_len = read(STDIN_FILENO, msg, SEND_BUFFER_SIZE);
-  if (msg_len == -1)
+  int msg_len;
+  do
   {
-    perror("Error reading message");
-    return EXIT_FAILURE;
-  }
-  printf("Read %d bytes from stdin\n", msg_len);
-
-  // Send the message. Sometimes we can't do it all at once
-  int offset = 0;
-  int bytes_remaining = msg_len;
-  while (bytes_remaining > 0)
-  {
-    int offset = msg_len - bytes_remaining;
-    int bytes_sent = send(sock_fd, msg+offset, bytes_remaining, 0);
-    if (bytes_sent == -1)
+    // Read as much as possible from stdin
+    msg_len = read(STDIN_FILENO, msg, SEND_BUFFER_SIZE);
+    if (msg_len == -1)
     {
-      perror("Error sending message");
+      perror("Error reading message");
       return EXIT_FAILURE;
     }
-    printf("Sent %d bytes to server\n", bytes_sent);
-    exit(1);
-    bytes_remaining -= bytes_sent;
-  }
+
+    // Send message, sometimes we can't do all at once
+    int offset = 0;
+    int bytes_remaining = msg_len;
+    while (bytes_remaining > 0)
+    {
+      int offset = msg_len - bytes_remaining;
+      int bytes_sent = send(sock_fd, msg + offset, bytes_remaining, 0);
+      if (bytes_sent == -1)
+      {
+        perror("Error sending message");
+        return EXIT_FAILURE;
+      }
+      bytes_remaining -= bytes_sent;
+    }
+
+  } while (msg_len > 0);
 
   close(sock_fd);
-  freeaddrinfo(serverinfo); // free the linked-list
   fflush(stdout);
   return 0;
 }

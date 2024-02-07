@@ -124,7 +124,8 @@ int proxy(char *proxy_port)
     }
     close(client_fd);
   }
-
+  
+  // TODO: do I need to wait on all child processes?
   return EXIT_SUCCESS;
 }
 

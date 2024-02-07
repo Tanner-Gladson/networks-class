@@ -11,17 +11,8 @@
 #include <errno.h>
 #include <netinet/tcp.h>
 
-/* TODO: proxy()
- * Establish a socket connection to listen for incoming connections.
- * Accept each client request in a new process.
- * Parse header of request and get requested URL.
- * Get data from requested remote server.
- * Send data to the client
- * Return 0 on success, non-zero on failure
-*/
-int proxy(char *proxy_port) {
-  return 0;
-}
+int proxy(char *proxy_port);
+int handle_connection();
 
 
 int main(int argc, char * argv[]) {
@@ -34,4 +25,20 @@ int main(int argc, char * argv[]) {
 
   proxy_port = argv[1];
   return proxy(proxy_port);
+}
+
+/* TODO: proxy()
+ * Establish a socket connection to listen for incoming connections.
+ * Accept each client request in a new process.
+ * Parse header of request and get requested URL.
+ * Get data from requested remote server.
+ * Send data to the client
+ * Return 0 on success, non-zero on failure
+*/
+int proxy(char *proxy_port) {
+  return EXIT_SUCCESS;
+}
+
+int handle_connection() {
+  
 }

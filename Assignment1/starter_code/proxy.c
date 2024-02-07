@@ -13,6 +13,7 @@
 
 #define LISTEN_QUEUE_LEN 10
 #define MAX_NUMBER_FORKS 100
+#define MAX_BUFFER_SIZE 2048
 
 int proxy(char *proxy_port);
 int handle_connection();
@@ -142,16 +143,18 @@ int handle_connection(int client_fd, struct sockaddr_storage* client_addr)
   printf("server: got connection from %s\n", s);
 
   // Need to parse/reformat and validate the client's HTTP requests
-  void read_http_request();
+  struct ParsedRequest* request = ParsedRequest_create();
+  void read_http_request(client_fd, request);
 
   // Now, we need to forward that request
+  char response[MAX_BUFFER_SIZE];
   void forward_http_request();
 
   // The returned HTTP is directly sent to the client
-  void return_http_request();
-
+  void return_http_request(client_fd, response);
 
   // Clean up the connection
+  ParsedRequest_destroy(request);
   int err = close(client_fd);
   if (err == -1)
   {
@@ -161,38 +164,54 @@ int handle_connection(int client_fd, struct sockaddr_storage* client_addr)
 }
 
 
-void read_http_request(int client_fd) {
-  // ... read in the raw text
-  const int RECV_BUFFER_SIZE = 2048; // TODO: how can I replace this?
-  char rx_buffer[RECV_BUFFER_SIZE];
-  int bytes_rx = recv(client_fd, rx_buffer, RECV_BUFFER_SIZE, 0);
+void read_http_request(int client_fd, struct ParsedRequest* request) {
+  // Read in from raw text and parse into HTTP
+  char rx_buffer[MAX_BUFFER_SIZE];
+  int bytes_rx = recv(client_fd, rx_buffer, sizeof rx_buffer, 0);
+  
+  if (ParsedRequest_parse(request, rx_buffer, sizeof rx_buffer) < 0) {
+      printf("parse failed\n");
+      return -1; // TODO: Bad request
+  }
 
-  // ... parse into HTTP
+  // We only need to support GET requests
+  if (strcmp(request->method, "GET") != 0) {
+    return -1; // TODO: Not implimented
+  }
+
+  // TODO: check that GET request is formatted correctly (do I really need this?)
 
 
-  // ... check if valid format
+  // TODO: return data necessary for forwarding (which is what?)
 
 
-  // ... check if supported request
+  // EXAMPLE: unparsing back into HTTP, accounts for modifications to ParsedRequest
+  int request_len = ParsedRequest_totalLen(req);
+  char *return_buffer = (char *) malloc(request_len+1);
+  if (ParsedRequest_unparse(request, return_buffer, request_len) < 0) {
+    printf("unparse failed\n");
+    return -1;
+  }
+  return_buffer[request_len]='\0';
+  free(return_buffer);
 
+  // EXAMPLE: getting header information. Why would I need?
+  struct ParsedHeader *r = ParsedHeader_get(request, "If-Modified-Since");
+  printf("Modified value: %s\n", r->value);
 
-  // ... check that GET request is formatted correctly
-
-
-  // ... return data necessary for forwarding (which is what?)
 }
 
 
 void forward_http_request() {
-  // ... establish connection with server
-  // ... send HTTP request to server
-  // ... close connection with server?
-  // ... return the HTTP response
+  // TODO: establish connection with server
+  // TODO: send HTTP request to server
+  // TODO: close connection with server?
+  // TODO: return the HTTP response
 }
 
 
 void return_http_request(int client_fd) {
-  // ... write HTTP response to the client's fd
+  // TODO: write HTTP response to the client's fd
 }
 
 

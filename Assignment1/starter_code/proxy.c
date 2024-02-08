@@ -283,7 +283,7 @@ int open_proxy_listening_socket(char *proxy_port) {
   freeaddrinfo(serverinfo);
   if (p == NULL)
   {
-    fprintf(stderr, "server: failed to bind\n");
+    fprintf(stderr, "Proxy listening socket: failed to bind\n");
     return -1;
   }
   return sock_fd;

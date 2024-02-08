@@ -1,6 +1,7 @@
 CC=gcc
-CFLAGS= -g -Wall
+CFLAGS= -Wall
 
+# Normal mode
 all: proxy
 
 proxy: proxy.c
@@ -10,3 +11,9 @@ proxy: proxy.c
 
 clean:
 	rm -f proxy *.o
+
+# Debug mode
+debug: CFLAGS += -g -DDEBUG
+debug: proxy
+
+.PHONY: debug

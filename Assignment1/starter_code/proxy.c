@@ -84,7 +84,7 @@ int start_proxy(char *proxy_port)
     }
 
     #ifdef DEBUG // Debug with a single process, much easier
-      printf("Accepted message, forking a child\n");
+      printf("Accepted message, pretending to fork a child\n");
       handle_connection(client_fd);
     #else
       // TODO: limit number of forks
@@ -161,8 +161,15 @@ int read_http_request(int client_fd, struct ParsedRequest* request) {
   char rx_buffer[MAX_BUFFER_SIZE];
   int bytes_rx = recv(client_fd, rx_buffer, sizeof rx_buffer, 0);
 
+  // #ifdef DEBUG
+  //   rx_buffer[bytes_rx] = '\0';
+  //   printf("Request: \n\n%s\nAttempting to parse...\n", rx_buffer);
+  // #endif
+
+  // TODO: Remove this, uncomment the debug statement above
   #ifdef DEBUG
-    rx_buffer[bytes_rx] = '\0';
+    // Manually set the request, my receive is not behaving correctly
+    strcpy(rx_buffer, "GET http://www.google.com:80/index.html HTTP/1.0\r\n\r\n");
     printf("Request: \n\n%s\nAttempting to parse...\n", rx_buffer);
   #endif
 

@@ -168,7 +168,7 @@ int read_http_request(int client_fd, struct ParsedRequest* request) {
   int total_bytes_read = 0;
   int num_carriage_returns = 0;
   while (1) {
-    char* client_request = (char *) realloc(client_request, (total_bytes_read + DEFAULT_BUFFER_SIZE + 1) * sizeof(char));
+    client_request = (char *) realloc(client_request, (total_bytes_read + DEFAULT_BUFFER_SIZE + 1) * sizeof(char));
     if (client_request == NULL) {
       return -400;
     }
@@ -268,7 +268,7 @@ int forward_http_request(struct ParsedRequest* request, char* response) {
   int total_bytes_read = 0;
   int num_carriage_returns = 0;
   while (1) {
-    char* response = (char *) realloc(response, (total_bytes_read + DEFAULT_BUFFER_SIZE + 1) * sizeof(char));
+    response = (char *) realloc(response, (total_bytes_read + DEFAULT_BUFFER_SIZE + 1) * sizeof(char));
     if (response == NULL) {
       return -1;
     }

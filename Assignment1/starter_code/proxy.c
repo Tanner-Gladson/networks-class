@@ -23,7 +23,7 @@ int start_proxy(char *proxy_port);
 int handle_connection(int client_fd);
 int _attempt_handle_connection(int client_fd, struct ParsedRequest* request);
 int read_http_request(int client_fd, struct ParsedRequest* request);
-int forward_http_request(struct ParsedRequest* request, char* response_buffer, int buffer_len);
+int forward_http_request(struct ParsedRequest* request, char* response);
 int open_proxy_listening_socket(char *proxy_port);
 int open_server_socket(char *server_ip, char *server_port);
 int send_text(int client_fd, char *data, int length);
@@ -145,7 +145,7 @@ int _attempt_handle_connection(int client_fd, struct ParsedRequest* request) {
   }
 
   /* Forward request to server */
-  char* response;
+  char* response = NULL;
   int response_len = forward_http_request(request, response);
   if (err == -400) {
     send(client_fd, "HTTP/1.0 400 Bad Request\r\n\r\n", 26, 0);
@@ -162,32 +162,46 @@ int _attempt_handle_connection(int client_fd, struct ParsedRequest* request) {
 
 
 int read_http_request(int client_fd, struct ParsedRequest* request) {
-  char rx_buffer[DEFAULT_BUFFER_SIZE];
 
+  /* Get the client's request */
+  char* client_request = NULL;
   int total_bytes_read = 0;
-  while (total_bytes_read < sizeof rx_buffer) {
-    // Keep reading until we get a full request (we've seen two '\r\n')
-    // TODO: Do not assume that the full request fits in buffer?
-    int bytes_rx = recv(client_fd, rx_buffer + total_bytes_read, sizeof rx_buffer - total_bytes_read, 0);
-    if (bytes_rx == -1) {
-      perror("Error receiving message");
+  int num_carriage_returns = 0;
+  while (1) {
+    char* client_request = (char *) realloc(client_request, (total_bytes_read + DEFAULT_BUFFER_SIZE + 1) * sizeof(char));
+    if (client_request == NULL) {
       return -400;
     }
-    if (bytes_rx == 0) {
-      return -400;
-    }
-    total_bytes_read += bytes_rx;
 
-    if (count_carriage_returns(rx_buffer, total_bytes_read) >= 2) {
+    int bytes_read = recv(client_fd, client_request + total_bytes_read, DEFAULT_BUFFER_SIZE, 0);
+
+    if (bytes_read == -1) {
+      #ifdef DEBUG
+        perror("Error receiving message");
+      #endif
+      free(client_request);
+      return -400;
+    }
+    if (bytes_read == 0) {
+      free(client_request);
+      return -400;
+    }
+
+    // We can stop after seeing end of first line and headers. Count only in the newly read portion
+    num_carriage_returns += count_carriage_returns(client_request + total_bytes_read, bytes_read);
+    total_bytes_read += bytes_read;
+    
+    if (num_carriage_returns >= 2) {
+      #ifdef DEBUG
+        client_request[total_bytes_read] = '\0';
+        printf("Request: \n\n%s\nAttempting to parse...\n", client_request);
+      #endif
       break;
     }
   }
 
-  #ifdef DEBUG
-    printf("Request: \n\n%s\nAttempting to parse...\n", rx_buffer);
-  #endif
-
-  int err = ParsedRequest_parse(request, rx_buffer, sizeof rx_buffer);
+  int err = ParsedRequest_parse(request, client_request, total_bytes_read);
+  free(client_request);
   if (err < 0) {
     return -400;
   }
@@ -254,11 +268,16 @@ int forward_http_request(struct ParsedRequest* request, char* response) {
   int total_bytes_read = 0;
   int num_carriage_returns = 0;
   while (1) {
-    char* response = (char *) realloc((total_bytes_read + DEFAULT_BUFFER_SIZE) * sizeof(char));
+    char* response = (char *) realloc(response, (total_bytes_read + DEFAULT_BUFFER_SIZE + 1) * sizeof(char));
+    if (response == NULL) {
+      return -1;
+    }
+    
     int bytes_read = recv(server_fd, response + total_bytes_read, DEFAULT_BUFFER_SIZE, 0);
-
     if (bytes_read == -1) {
-      perror("Error receiving message");
+      #ifdef DEBUG
+        perror("Error receiving message");
+      #endif
       free(response);
       return -400;
     }
@@ -270,7 +289,6 @@ int forward_http_request(struct ParsedRequest* request, char* response) {
     // We can stop after seeing end of first line and headers. Count only in the newly read portion
     num_carriage_returns += count_carriage_returns(response + total_bytes_read, bytes_read);
     total_bytes_read += bytes_read;
-    
     if (num_carriage_returns >= 2) {
       break;
     }
@@ -278,7 +296,7 @@ int forward_http_request(struct ParsedRequest* request, char* response) {
 
   /* We're good to return everything */
   #ifdef DEBUG
-    full_response[total_bytes_read] = '\0';
+    response[total_bytes_read] = '\0';
     printf("Response: \n\n%s\n", request_buffer);
   #endif
 

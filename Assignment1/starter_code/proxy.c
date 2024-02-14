@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <netinet/tcp.h>
 
+// TODO: what size should my max buffer be?
 #define LISTEN_QUEUE_LEN 10
 #define MAX_NUMBER_FORKS 100
 #define MAX_BUFFER_SIZE 2048
@@ -61,7 +62,7 @@ int start_proxy(char *proxy_port)
   socklen_t sin_size = sizeof client_addr;
   int num_active_forks = 0;
 
-  // TODO: do I need to add a signal handler?
+  // TODO: do I need to add a signal handler for clean exit?
   while (1)
   {
     // Reap zombies
@@ -87,7 +88,6 @@ int start_proxy(char *proxy_port)
       printf("Accepted message, pretending to fork a child\n");
       handle_connection(client_fd);
     #else
-      // TODO: limit number of forks
       if (!fork())
       { 
         // entire child process
@@ -159,17 +159,27 @@ int _attempt_handle_connection(int client_fd, struct ParsedRequest* request) {
 
 int read_http_request(int client_fd, struct ParsedRequest* request) {
   char rx_buffer[MAX_BUFFER_SIZE];
-  int bytes_rx = recv(client_fd, rx_buffer, sizeof rx_buffer, 0);
 
-  // #ifdef DEBUG
-  //   rx_buffer[bytes_rx] = '\0';
-  //   printf("Request: \n\n%s\nAttempting to parse...\n", rx_buffer);
-  // #endif
+  int total_bytes_read = 0;
+  while (total_bytes_read < sizeof rx_buffer) {
+    // Keep reading until we get a full request (two '\r\n' in a row)
+    int bytes_rx = recv(client_fd, rx_buffer + total_bytes_read, sizeof rx_buffer - total_bytes_read, 0);
+    if (bytes_rx == -1) {
+      perror("Error receiving message");
+      return -400;
+    }
+    if (bytes_rx == 0) {
+      return -400;
+    }
 
-  // TODO: Remove this, uncomment the debug statement above
+    total_bytes_read += bytes_rx;
+    if (strstr(rx_buffer, "\r\n\r\n") != NULL) {
+      break;
+    }
+  }
+
   #ifdef DEBUG
-    // Manually set the request, my receive is not behaving correctly
-    strcpy(rx_buffer, "GET http://www.google.com:80/index.html HTTP/1.0\r\n\r\n");
+    rx_buffer[total_bytes_read] = '\0';
     printf("Request: \n\n%s\nAttempting to parse...\n", rx_buffer);
   #endif
 
@@ -222,7 +232,7 @@ int forward_http_request(struct ParsedRequest* request, char* response_buffer, i
   // Debug request
   #ifdef DEBUG
     request_buffer[request_len]='\0';
-    printf("Request: \n\n%s\n", request_buffer);
+    printf("Request sent to server: \n\n%s\n", request_buffer);
   #endif
 
   // Send request to server

@@ -237,31 +237,52 @@ int forward_http_request(struct ParsedRequest* request, char* response) {
     #endif
     return -1;
   }
-
-  // TODO: This needs to send a custom formatted request
-  char request_buffer[DEFAULT_BUFFER_SIZE];
-  int request_len = sizeof request_buffer;
-  if (ParsedRequest_unparse(request, request_buffer, request_len) == -1) {
+  if (ParsedHeader_set(request, "Host", request->host) == -1) {
     #ifdef DEBUG
-      printf("Failed to unparse request, returning 400 error code\n");
+      printf("Failed to set 'Host: <host>' header\n");
+    #endif
+    return -1;
+  }
+
+  // Add the "GET <relativeURL> HTTP/1.0 \r\n"
+  int buffer_len = ParsedRequest_totalLen(request); // Use buffer with copious space
+  char *request_buffer = (char *)malloc(buffer_len + DEFAULT_BUFFER_SIZE);
+  strcpy(request_buffer, request->method);
+  strcat(request_buffer, " ");
+  strcat(request_buffer, request->path);
+  strcat(request_buffer, " ");
+  strcat(request_buffer, request->version);
+  strcat(request_buffer, "\r\n");
+  int request_len = strlen(request_buffer);
+
+  // Add the headers, followed by "\r\n"
+  char * start = request_buffer + strlen(request_buffer);
+  if(ParsedRequest_unparse_headers(request, start, buffer_len - strlen(request_buffer)) == -1) {
+    #ifdef DEBUG
+      printf("Failed to unparse headers, returning 400 error code\n");
     #endif
     return -400;
   }
+  request_len += ParsedHeader_headersLen(request);
 
-  // Add the "GET <relativeURL>\r\n"
-
-  // Add the headers, followed by "\r\n"
-
-  // END TODO
+  #ifdef DEBUG
+    if (count_carriage_returns(request_buffer, buffer_len) != 2) {
+      printf("Unparsed request does not have 2 carriage returns\n");
+    }
+  #endif
 
   #ifdef DEBUG
     request_buffer[request_len]='\0';
     printf("Request sent to server: \n\n%s\n", request_buffer);
   #endif
 
-
   /* Get response from server */
-  if (send_text(server_fd, request_buffer, request_len) == -1) {
+  int status = send_text(server_fd, request_buffer, request_len);
+  free(request_buffer);
+  if (status == -1) {
+    #ifdef DEBUG
+      printf("Failed to send request to server\n");
+    #endif
     return -1;
   }
 

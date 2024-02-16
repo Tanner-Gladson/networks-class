@@ -13,7 +13,7 @@ clean:
 	rm -f proxy *.o
 
 # Debug mode
-debug: CFLAGS += -g -DDEBUG
+debug: CFLAGS += -g -DDEBUG_FLAG
 debug: proxy
 
 .PHONY: debug

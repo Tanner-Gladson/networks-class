@@ -12,8 +12,6 @@
 #include <errno.h>
 #include <netinet/tcp.h>
 
-// TODO: what size should my max buffer be? Nope! Need to 
-// accumulate it all
 #define LISTEN_QUEUE_LEN 10
 #define MAX_NUMBER_FORKS 100
 #define DEFAULT_BUFFER_SIZE 2048
@@ -22,12 +20,13 @@
 int start_proxy(char *proxy_port);
 int handle_connection(int client_fd);
 int _attempt_handle_connection(int client_fd, struct ParsedRequest* request);
-int read_http_request(int client_fd, struct ParsedRequest* request);
-int forward_http_request(struct ParsedRequest* request, char* response);
+int parse_client_http_request(int client_fd, struct ParsedRequest* request);
+int forward_http_request(struct ParsedRequest* request, char** response);
 int open_proxy_listening_socket(char *proxy_port);
 int open_server_socket(char *server_ip, char *server_port);
 int send_text(int client_fd, char *data, int length);
 int count_carriage_returns(const char* str, int length);
+int recv_http_request(int socket_fd, char** buffer_pointer);
 
 
 int main(int argc, char *argv[])
@@ -54,10 +53,9 @@ int start_proxy(char *proxy_port)
     return -1;
   }
 
-  #ifdef DEBUG
+  #ifdef DEBUG_FLAG
     printf("Bound to socket. Waiting for connections...\n");
   #endif
-
 
   // Clients can connect whenever, we'll be listening
   struct sockaddr_storage client_addr;
@@ -80,26 +78,18 @@ int start_proxy(char *proxy_port)
     
     // We must accept connections
     int client_fd = accept(sock_fd, (struct sockaddr *) &client_addr, &sin_size);
-    if (client_fd == -1)
-    {
+    if (client_fd == -1) {
       perror("Could not accept client conenction");
       continue;
     }
-
-    #ifdef DEBUG // Debug with a single process, much easier
-      printf("Accepted message, pretending to fork a child\n");
+    if (!fork()) { 
+      // entire child process
+      close(sock_fd);
       handle_connection(client_fd);
-    #else
-      if (!fork())
-      { 
-        // entire child process
-        close(sock_fd);
-        handle_connection(client_fd, &client_addr);
-        close(client_fd);
-        exit(0);
-      }
-      num_active_forks++;
-    #endif
+      close(client_fd);
+      exit(0);
+    }
+    num_active_forks++;
     close(client_fd);
   }
   
@@ -129,24 +119,24 @@ int handle_connection(int client_fd)
 
 int _attempt_handle_connection(int client_fd, struct ParsedRequest* request) {
   /* Get client's requests */
-  int err = read_http_request(client_fd, request);
+  int err = parse_client_http_request(client_fd, request);
   if (err == -501) {
-    #ifdef DEBUG
+    #ifdef DEBUG_FLAG
       printf("Failed to parse request, sending 501 error code\n");
     #endif
     send(client_fd, "HTTP/1.0 501 Not Implemented\r\n\r\n", 35, 0);
     return -1;
   } else if (err == -400) {
-    #ifdef DEBUG
+    #ifdef DEBUG_FLAG
       printf("Failed to parse request, sending 400 error code\n");
     #endif
     send(client_fd, "HTTP/1.0 400 Bad Request\r\n\r\n", 26, 0);
     return -1;
   }
 
-  /* Forward request to server */
+  /* Forward request to server and receive response */
   char* response = NULL;
-  int response_len = forward_http_request(request, response);
+  int response_len = forward_http_request(request, &response);
   if (err == -400) {
     send(client_fd, "HTTP/1.0 400 Bad Request\r\n\r\n", 26, 0);
     return -1;
@@ -154,7 +144,7 @@ int _attempt_handle_connection(int client_fd, struct ParsedRequest* request) {
     return -1;
   }
 
-  #ifdef DEBUG
+  #ifdef DEBUG_FLAG
     printf("\nGot response of length %d\n", response_len);
     printf("Sending response back to client\n");
   #endif
@@ -166,47 +156,24 @@ int _attempt_handle_connection(int client_fd, struct ParsedRequest* request) {
 }
 
 
-int read_http_request(int client_fd, struct ParsedRequest* request) {
+int parse_client_http_request(int client_fd, struct ParsedRequest* request) {
 
   /* Get the client's request */
   char* client_request = NULL;
-  int total_bytes_read = 0;
-  int num_carriage_returns = 0;
-  while (1) {
-    client_request = (char *) realloc(client_request, (total_bytes_read + DEFAULT_BUFFER_SIZE + 1) * sizeof(char));
-    if (client_request == NULL) {
-      return -400;
-    }
-
-    int bytes_read = recv(client_fd, client_request + total_bytes_read, DEFAULT_BUFFER_SIZE, 0);
-
-    if (bytes_read == -1) {
-      #ifdef DEBUG
-        perror("Error receiving message");
-      #endif
-      free(client_request);
-      return -400;
-    }
-    if (bytes_read == 0) {
-      free(client_request);
-      return -400;
-    }
-
-    // We can stop after seeing end of first line and headers. Count only in the newly read portion
-    num_carriage_returns += count_carriage_returns(client_request + total_bytes_read, bytes_read);
-    total_bytes_read += bytes_read;
-    
-    if (num_carriage_returns >= 2) {
-      #ifdef DEBUG
-        client_request[total_bytes_read] = '\0';
-        printf("Request: \n\n%s\nAttempting to parse...\n", client_request);
-      #endif
-      break;
-    }
+  int request_size = recv_http_request(client_fd, &client_request);
+  if (request_size == -1) {
+    return -400;
   }
 
-  int err = ParsedRequest_parse(request, client_request, total_bytes_read);
+  #ifdef DEBUG_FLAG
+    client_request[request_size] = '\0';
+    printf("Client request: \n\n%s\n", client_request);
+  #endif
+
+  /* Parse the client's request */
+  int err = ParsedRequest_parse(request, client_request, request_size);
   free(client_request);
+
   if (err < 0) {
     return -400;
   }
@@ -217,7 +184,7 @@ int read_http_request(int client_fd, struct ParsedRequest* request) {
 }
 
 
-int forward_http_request(struct ParsedRequest* request, char* response) {
+int forward_http_request(struct ParsedRequest* request, char** response) {
   /* Recieve a dynamically allocated request, return a dynamically allocated response on success */
   
   /* Open a connection with the server */
@@ -227,7 +194,7 @@ int forward_http_request(struct ParsedRequest* request, char* response) {
   } else {
     strcpy(port, request->port);
   }
-  #ifdef DEBUG
+  #ifdef DEBUG_FLAG
     printf("Connecting to server %s on port %s\n", port, request->host);
   #endif
   int server_fd = open_server_socket(request->host, port);
@@ -237,13 +204,13 @@ int forward_http_request(struct ParsedRequest* request, char* response) {
 
   /* Format the HTTP request for the server (we want to close the connection after retrieval) */
   if (ParsedHeader_set(request, "Connection", "close") == -1) {
-    #ifdef DEBUG
+    #ifdef DEBUG_FLAG
       printf("Failed to set 'Connection: close' header\n");
     #endif
     return -1;
   }
   if (ParsedHeader_set(request, "Host", request->host) == -1) {
-    #ifdef DEBUG
+    #ifdef DEBUG_FLAG
       printf("Failed to set 'Host: <host>' header\n");
     #endif
     return -1;
@@ -263,74 +230,54 @@ int forward_http_request(struct ParsedRequest* request, char* response) {
   // Add the headers, followed by "\r\n"
   char * start = request_buffer + strlen(request_buffer);
   if(ParsedRequest_unparse_headers(request, start, buffer_len - strlen(request_buffer)) == -1) {
-    #ifdef DEBUG
+    #ifdef DEBUG_FLAG
       printf("Failed to unparse headers, returning 400 error code\n");
     #endif
     return -400;
   }
   request_len += ParsedHeader_headersLen(request);
 
-  #ifdef DEBUG
+  #ifdef DEBUG_FLAG
     int n_returns = count_carriage_returns(request_buffer, buffer_len);
     if (count_carriage_returns(request_buffer, buffer_len) != 2) {
       printf("Unparsed request has %d carriage returns\n", n_returns);
     }
   #endif
 
-  #ifdef DEBUG
+  #ifdef DEBUG_FLAG
     request_buffer[request_len]='\0';
     printf("Request sent to server: \n\n%s\n", request_buffer);
   #endif
 
-  /* Get response from server */
+  /* Send request to server */
   int status = send_text(server_fd, request_buffer, request_len);
   free(request_buffer);
   if (status == -1) {
-    #ifdef DEBUG
+    #ifdef DEBUG_FLAG
       printf("Failed to send request to server\n");
     #endif
     return -1;
   }
 
-  int total_bytes_read = 0;
-  int num_carriage_returns = 0;
-  while (1) {
-    response = (char *) realloc(response, (total_bytes_read + DEFAULT_BUFFER_SIZE + 1) * sizeof(char));
-    if (response == NULL) {
-      return -1;
-    }
-    
-    int bytes_read = recv(server_fd, response + total_bytes_read, DEFAULT_BUFFER_SIZE, 0);
-    if (bytes_read == -1) {
-      #ifdef DEBUG
-        perror("Error receiving message");
-      #endif
-      free(response);
-      return -400;
-    }
-    if (bytes_read == 0) {
-      free(response);
-      return -400;
-    }
-
-    // We can stop after seeing end of first line and headers. Count only in the newly read portion
-    num_carriage_returns += count_carriage_returns(response + total_bytes_read, bytes_read);
-    total_bytes_read += bytes_read;
-    if (num_carriage_returns >= 2) {
-      break;
-    }
+  /* Recieve response from the server */
+  int response_size = recv_http_request(server_fd, response);
+  if (response_size == -1) {
+    #ifdef DEBUG_FLAG
+      printf("Failed to receive response from server\n");
+    #endif
+    return -1;
   }
 
   /* We're good to return everything */
-  #ifdef DEBUG
-    response[total_bytes_read] = '\0';
-    printf("Response: \n\n%s\n", request_buffer);
+  #ifdef DEBUG_FLAG
+    (*response)[response_size] = '\0';
+    printf("Response: \n\n%s\n", *response);
   #endif
 
   if (close(server_fd) == -1) {
     perror("Error closing server connection\n");
   }
-  return total_bytes_read;
+  return response_size;
 }
 
 
@@ -348,7 +295,9 @@ int open_proxy_listening_socket(char *proxy_port) {
   int err = getaddrinfo(NULL, proxy_port, &hints, &serverinfo);
   if (err != 0)
   {
-    fprintf(stderr, "Error getting addr info");
+    #ifdef DEBUG_FLAG
+      fprintf(stderr, "Error getting address info. Error code: %d\n", err);
+    #endif
     return -1;
   }
 
@@ -441,6 +390,41 @@ int send_text(int client_fd, char *data, int length) {
   }
   return 0;
 }
+
+/* Reads an HTTP request from a socket. Buffer will have dyn allocated data on success */
+int recv_http_request(int socket_fd, char** buffer_pointer) {
+  int total_bytes_read = 0;
+  int num_carriage_returns = 0;
+
+  while (1) {
+    *buffer_pointer = (char *) realloc(*buffer_pointer, (total_bytes_read + DEFAULT_BUFFER_SIZE + 1) * sizeof(char));
+    int bytes_read = recv(socket_fd, *buffer_pointer + total_bytes_read, DEFAULT_BUFFER_SIZE, 0);
+    
+    if (bytes_read == -1) {
+      #ifdef DEBUG_FLAG
+        perror("Error receiving message");
+      #endif
+      free(*buffer_pointer);
+      return -1;
+    }
+    if (bytes_read == 0) {
+      free(*buffer_pointer);
+      #ifdef DEBUG_FLAG
+        perror("Connection closed by remote");
+      #endif
+      return -1;
+    }
+
+    // We can stop after seeing end of first line and headers. Count only in the newly read portion
+    num_carriage_returns += count_carriage_returns(*buffer_pointer + total_bytes_read, bytes_read);
+    total_bytes_read += bytes_read;
+    if (num_carriage_returns >= 2) {
+      break;
+    }
+  }
+  return total_bytes_read;
+}
+
 
 int count_carriage_returns(const char* str, int length) {
   int count = 0;

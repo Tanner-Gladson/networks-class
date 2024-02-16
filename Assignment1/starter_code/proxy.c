@@ -154,6 +154,11 @@ int _attempt_handle_connection(int client_fd, struct ParsedRequest* request) {
     return -1;
   }
 
+  #ifdef DEBUG
+    printf("\nGot response of length %d\n", response_len);
+    printf("Sending response back to client\n");
+  #endif
+
   /* Send server's response back to the client */
   int success = send_text(client_fd, response, response_len);
   free(response);
@@ -266,8 +271,9 @@ int forward_http_request(struct ParsedRequest* request, char* response) {
   request_len += ParsedHeader_headersLen(request);
 
   #ifdef DEBUG
+    int n_returns = count_carriage_returns(request_buffer, buffer_len);
     if (count_carriage_returns(request_buffer, buffer_len) != 2) {
-      printf("Unparsed request does not have 2 carriage returns\n");
+      printf("Unparsed request has %d carriage returns\n", n_returns);
     }
   #endif
 
@@ -436,7 +442,6 @@ int send_text(int client_fd, char *data, int length) {
   return 0;
 }
 
-// TODO: This is probably wrong, Erfan said each is one byte
 int count_carriage_returns(const char* str, int length) {
   int count = 0;
   for (int i = 0; i < length - 1; i++) {
@@ -446,6 +451,3 @@ int count_carriage_returns(const char* str, int length) {
   }
   return count;
 }
-
-
-  

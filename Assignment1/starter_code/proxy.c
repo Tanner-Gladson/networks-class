@@ -5,7 +5,7 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/types.h>
+#include <sys/types.h>  
 #include <sys/wait.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -223,7 +223,7 @@ int forward_http_request(struct ParsedRequest* request, char** response) {
   strcat(request_buffer, " ");
   strcat(request_buffer, request->path);
   strcat(request_buffer, " ");
-  strcat(request_buffer, request->version);
+  strcat(request_buffer, "HTTP/1.0");
   strcat(request_buffer, "\r\n");
   int request_len = strlen(request_buffer);
 

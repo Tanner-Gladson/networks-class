@@ -22,4 +22,3 @@ pkill -9 sr_solution
 pkill -9 sr
 
 popd
-

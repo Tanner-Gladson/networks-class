@@ -20,5 +20,3 @@ rm -f get-pip.py
 sudo pip install pathlib
 sudo pip install twisted
 sudo pip install ltprotocol
-
-

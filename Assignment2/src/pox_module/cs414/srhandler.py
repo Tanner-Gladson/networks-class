@@ -104,7 +104,6 @@ class SRServerListener(EventMixin):
     elif vns_msg.get_type() == VNSPacket.get_type():
       self._handle_packet_msg(conn, vns_msg)
     elif vns_msg.get_type() == VNSOpenTemplate.get_type():
-      # TODO: see if this is needed...
       self._handle_open_template_msg(conn, vns_msg)
     else:
       log.debug('unexpected VNS message received: %s' % vns_msg)

@@ -78,10 +78,94 @@ void sr_handlepacket(struct sr_instance* sr,
 
   printf("*** -> Received packet of length %d \n",len);
 
-  /* TODO: fill in code here */
+  /*9
+  Notes:
+   - Use sr_send_packet() for sending a packet out an interface
+  */
 
-} /* end sr_handlepacket */
+  if (len < sizeof(sr_ethernet_hdr_t)) {
+    fprintf(stderr, "Failed to cast ETHERNET header, insufficient length\n");
+    return;
+  }
 
+  uint8_t* network_header = packet + sizeof(sr_ethernet_hdr_t);
+  unsigned int new_len = len - sizeof(sr_ethernet_hdr_t);
+
+  if (ethertype(packet) == ethertype_ip) {
+    if (new_len < sizeof(sr_ip_hdr_t)) {
+      fprintf(stderr, "Failed to cast IP header, insufficient length\n");
+      return;
+    }
+    _sr_handle_ip_packet(sr, (sr_ip_hdr_t*) network_header, new_len);
+  } else {
+    if (new_len < sizeof(sr_arp_hdr_t)) {
+      fprintf(stderr, "Failed to cast ARP header, insufficient length\n");
+      return;
+    }
+    _sr_handle_arp_packet(sr, (sr_arp_hdr_t*) network_header, new_len);
+  }
+
+  // "Send ICMP messages based on certain conditions"
+}
+
+void _sr_handle_ip_packet(struct sr_instance* sr, sr_ip_hdr_t * packet/* lent */, unsigned int len)
+{
+  // Ignore packets with invalid IP checksums
+  if (cksum(packet, len) != ntohl(packet->ip_sum)) {
+    fprintf(stderr, "Failed to handle IP packet, invalid checksum\n");
+    return;
+  }
+  
+  // We ignore packets not targeted at this router
+  if (ntohl(packet->ip_dst) not in hosts) {
+    return;
+  }
+  
+  // We handle ICMP requests seperately
+  if (ip_protocol(packet) == ip_protocol_icmp) {
+    unsigned int icmp_len = len - sizeof(sr_ip_hdr_t);
+    if (icmp_len < sizeof(sr_icmp_hdr_t)) {
+      fprintf(stderr, "Failed to cast ICMP header, insufficient length\n");
+      return;
+    }
+    sr_icmp_hdr_t* icmp_header = packet + sizeof(sr_ip_hdr_t);
+    
+    // Ignore packets with invalid ICMP checksums
+    if (cksum(icmp_header, icmp_len) != ntohl(icmp_header->icmp_sum)) {
+      fprintf(stderr, "Failed to handle ICMP packet, invalid checksum\n");
+      return;
+    }
+
+    // If the packet is ICMP Echo Request (type 8)
+    //    ... Send an ICMP Echo reply (type 0) to the sending host
+  }
+
+  // Send (forward) IP packets
+  // Queue ARP requests
+}
+
+
+void _sr_handle_arp_packet(struct sr_instance* sr, sr_arp_hdr_t* packet/* lent */, unsigned int len)
+{
+  /*
+  pass arp packet
+
+  // We ignore packets not targeted at this router
+  if (ntohl(packet->ar_tip) not in hosts) {
+    return;
+  }
+
+  // We reply if it was a request
+  if (ntohs(packet->ar_pro) == arp_op_request) {
+    Send ARP reply
+    return;
+  }
+  
+  Cache ARP reply
+  Send IP packets that were waiting on this reply
+  Remove that ARP request from the queue (helper function somewhere)
+  */  
+}
 
 /* Add any additional helper methods here & don't forget to also declare
 them in sr_router.h.

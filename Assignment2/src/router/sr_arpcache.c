@@ -17,11 +17,34 @@
   See the comments in the header file for an idea of what it should look like.
 */
 void sr_arpcache_sweepreqs(struct sr_instance *sr) {
-    /* fill in code here */
+    /* TODONE: fill in code here */
+
+    struct sr_arpreq* req = sr->cache.requests;
+    while (req != NULL) {
+        struct sr_arpreq* next_req = req->next;
+        handle_arpreq(sr, req);
+        req = next_req;
+    }
 }
 
 void handle_arpreq(struct sr_instance *sr, struct sr_arpreq *request) {
-    /* fill in code here */
+    /* TODO: fill in code here */
+
+    /*
+    time_t curtime = time(NULL);
+
+
+    if (difftime(curtime, request->sent) > 1.0) {
+        if (request->times_sent >= 5) {
+            send icmp host unreachable to source addr of all pkts waiting on this request
+            arpreq_destroy(sr, request);
+            return;
+        }
+        send arp request
+        request->sent = now;
+        request->times_sent++;
+    }
+    */
 }
 
 /* You should not need to touch the rest of this code. */

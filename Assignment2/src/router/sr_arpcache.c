@@ -96,31 +96,15 @@ void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpre
         // Create our frame and get references to each layer's header
         const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
         uint8_t outgoing[len];
-        memset(&outgoing, 0, len);
-
-        sr_ethernet_hdr_t* ethernet_hdr = (sr_ethernet_hdr_t*) outgoing;
-        sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t*) (outgoing + sizeof(sr_ethernet_hdr_t));
-        sr_icmp_t3_hdr_t* icmp_hdr = (sr_icmp_t3_hdr_t*) (ip_hdr + sizeof(sr_ip_hdr_t));
-
-        /* Fill out the fields of each header */
-
-        // Ethernet
-        memcpy(ethernet_hdr->ether_dhost, waiting_frame_eth->ether_shost, ETHER_ADDR_LEN);
-        memcpy(ethernet_hdr->ether_shost, this_router_mac_addr, ETHER_ADDR_LEN);
-        ethernet_hdr->ether_type = ethertype_ip;
-
-        // IP
-        ip_hdr->ip_len = len - sizeof(sr_ethernet_hdr_t);
-        ip_hdr->ip_id = waiting_frame_ip->ip_id;
-        ip_hdr->ip_ttl = 64;
-        ip_hdr->ip_sum = cksum(ip_hdr, ip_hdr->ip_len);
-        ip_hdr->ip_src = this_router_ip;
-        ip_hdr->ip_dst = waiting_frame_ip->ip_src;
-        
-        // ICMP
-        icmp_hdr->icmp_type = 3;
-        icmp_hdr->icmp_code = 1; /* Host unreachable*/
-        icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(sr_icmp_t3_hdr_t));
+        create_icmp_packet(sr, 
+            outgoing, 
+            len, 
+            waiting_frame_eth->ether_shost, 
+            waiting_frame_ip->ip_id, 
+            waiting_frame_ip->ip_src, 
+            3, 
+            1
+        );
 
         // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
         char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, waiting_frame_eth->ether_shost);
@@ -142,7 +126,42 @@ void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request, 
 
 
 /* Protocol Helper functions */
+void create_icmp_packet(struct sr_instance *sr, 
+    sr_ethernet_hdr_t* buf, 
+    uint16_t len, 
+    char* ether_dhost, 
+    uint16_t ip_id, 
+    uint32_t ip_dest,
+    uint8_t icmp_type, 
+    uint8_t icmp_code) 
+{
+    /* Validate Buffer */
+    assert(len >= sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t));
+    memset(&buf, 0, len);
+    sr_ethernet_hdr_t* ethernet_hdr = (sr_ethernet_hdr_t*) buf;
+    sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t*) (buf + sizeof(sr_ethernet_hdr_t));
+    sr_icmp_t3_hdr_t* icmp_hdr = (sr_icmp_t3_hdr_t*) (ip_hdr + sizeof(sr_ip_hdr_t));
 
+    /* Fill out the fields of each header */
+
+    // Ethernet
+    memcpy(ethernet_hdr->ether_dhost, ether_dhost, ETHER_ADDR_LEN);
+    memcpy(ethernet_hdr->ether_shost, this_router_mac_addr, ETHER_ADDR_LEN);
+    ethernet_hdr->ether_type = ethertype_ip;
+
+    // IP
+    ip_hdr->ip_len = len - sizeof(sr_ethernet_hdr_t);
+    ip_hdr->ip_id = ip_id;
+    ip_hdr->ip_ttl = 64;
+    ip_hdr->ip_sum = cksum(ip_hdr, ip_hdr->ip_len);
+    ip_hdr->ip_src = this_router_ip;
+    ip_hdr->ip_dst = ip_dest;
+    
+    // ICMP
+    icmp_hdr->icmp_type = icmp_type;
+    icmp_hdr->icmp_code = icmp_code;
+    icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(sr_icmp_t3_hdr_t));
+}
 
 /* You should not need to touch the rest of this code. */
 

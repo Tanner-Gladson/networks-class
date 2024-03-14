@@ -176,7 +176,7 @@ void create_icmp_packet(struct sr_instance *sr,
     ip_hdr->ip_len = len - sizeof(sr_ethernet_hdr_t);
     ip_hdr->ip_id = ip_id;
     ip_hdr->ip_ttl = 64;
-    ip_hdr->ip_sum = cksum(ip_hdr, ip_hdr->ip_len);
+    ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
     ip_hdr->ip_src = this_router_ip;
     ip_hdr->ip_dst = ip_dest;
     

@@ -111,7 +111,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
         return;
     }
     sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(ether_hdr + sizeof(sr_ethernet_hdr_t));
-    if (cksum(ip_hdr, len) != ntohl(ip_hdr->ip_sum))
+    if (cksum(ip_hdr, sizeof(sr_ip_hdr_t)) != ntohl(ip_hdr->ip_sum))
     {
         fprintf(stderr, "Failed to handle IP packet, invalid checksum\n");
         return;
@@ -171,7 +171,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
             return;
         }
         sr_icmp_hdr_t *icmp_header = ip_hdr + sizeof(sr_ip_hdr_t);
-        if (cksum(icmp_header, icmp_len) != ntohl(icmp_header->icmp_sum))
+        if (cksum(icmp_header, sizeof(sr_icmp_hdr_t)) != ntohl(icmp_header->icmp_sum))
         {
             fprintf(stderr, "Failed to handle ICMP packet, invalid checksum\n");
             return;
@@ -200,7 +200,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
 
     /* Forward all other IP packets */
     ip_hdr->ip_ttl -= hston(ntohs(ip_hdr->ip_ttl) - 1);
-    ip_hdr->ip_sum = hston(cksum(ip_hdr, len - sizeof(sr_ethernet_hdr_t)));
+    ip_hdr->ip_sum = hston(cksum(ip_hdr, sizeof(sr_ip_hdr_t)));
 
     /* We can send if already in ARP cache, else queue for sending */
     sr_arpentry* arp_entry = sr_arpcache_lookup(&(sr->cache), ip_hdr->ip_dst);

@@ -58,29 +58,16 @@ void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
     // Create our ARP ethernet packet and extract pointers to the headers
     const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t);
     uint8_t outgoing[len];
-    memset(&outgoing, 0, len);
-
-    sr_ethernet_hdr_t* ethernet_hdr = (sr_ethernet_hdr_t*) outgoing;
-    sr_arp_hdr_t* arp_hdr = (sr_arp_hdr_t*) (outgoing + sizeof(sr_ethernet_hdr_t));
-
-    /* Fill out the fields of each header */
-
-    // Ethernet
     const char broadcast_addr[ETHER_ADDR_LEN] = {255};
-    memcpy(ethernet_hdr->ether_dhost, broadcast_addr, ETHER_ADDR_LEN);
-    memcpy(ethernet_hdr->ether_shost, this_router_mac_addr, ETHER_ADDR_LEN);
-    ethernet_hdr->ether_type = ethertype_arp;
-
-    // ARP
-    unsigned short  ar_hrd = arp_hrd_ethernet;
-    unsigned short  ar_pro = arp_hrd_ethernet;
-    unsigned char   ar_hln = ETHER_ADDR_LEN;
-    unsigned char   ar_pln = ETHER_ADDR_LEN;
-    unsigned short  ar_op = arp_op_request;
-    unsigned char   ar_sha[ETHER_ADDR_LEN];
-    uint32_t        ar_sip = this_router_ip_addr;             /* sender IP address */
-    unsigned char   ar_tha[ETHER_ADDR_LEN];
-    uint32_t        ar_tip = request->ip;
+    
+    create_arp_request(
+        sr, 
+        outgoing, 
+        len, 
+        arp_op_request,
+        broadcast_addr,
+        request->ip
+    );
 
     sr_send_packet(sr, outgoing, len, interface);
 }
@@ -102,8 +89,8 @@ void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpre
             waiting_frame_eth->ether_shost, 
             waiting_frame_ip->ip_id, 
             waiting_frame_ip->ip_src, 
-            3, 
-            1
+            0x03, 
+            0x01
         );
 
         // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
@@ -113,19 +100,55 @@ void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpre
 }
 
 void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request, struct sr_arpentry* arp_entry) {
-    // TODO: Which of these should I use?
-    char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, arp_entry->mac);
-    char interface[sr_IFACE_NAMELEN] = get_interface_from_ip(sr, arp_entry->ip);
-
     for (struct sr_packet* packet = request->packets; packet != NULL; packet = packet->next) {
         sr_ethernet_hdr_t* frame = packet->buf;
+
         memcpy(frame->ether_dhost, arp_entry->mac, ETHER_ADDR_LEN);
-        sr_send_packet(sr, packet, packet->len, interface);
+        memcpy(frame->ether_shost, this_router_mac, ETHER_ADDR_LEN);
+        sr_send_packet(sr, packet, packet->len, packet->iface);
     }
 }
 
 
 /* Protocol Helper functions */
+void create_arp_packet(
+    struct sr_instance *sr, 
+    sr_ethernet_hdr_t* buf, 
+    uint16_t len, 
+    unsigned short arp_op,
+    char* target_eth_addr,
+    uint32_t target_ip_addr
+    ) 
+{
+    assert(len >= sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t));
+    memset(&buf, 0, len);
+
+    sr_ethernet_hdr_t* ethernet_hdr = (sr_ethernet_hdr_t*) buf;
+    sr_arp_hdr_t* arp_hdr = (sr_arp_hdr_t*) (buf + sizeof(sr_ethernet_hdr_t));
+
+    /* Fill out the fields of each header */
+
+    // Ethernet
+    
+    memcpy(ethernet_hdr->ether_dhost, target_eth_addr, ETHER_ADDR_LEN);
+    memcpy(ethernet_hdr->ether_shost, this_router_mac_addr, ETHER_ADDR_LEN);
+    ethernet_hdr->ether_type = ethertype_arp;
+
+    // ARP
+    arp_hdr->ar_hrd = arp_hrd_ethernet;
+    arp_hdr->ar_pro = arp_hrd_ethernet;
+    arp_hdr->ar_hln = ETHER_ADDR_LEN;
+    arp_hdr->ar_pln = ETHER_ADDR_LEN;
+    arp_hdr->ar_op = arp_op;
+
+    memcpy(arp_hdr->ar_sha, this_router_mac_addr, ETHER_ADDR_LEN);
+    arp_hdr->ar_sip = this_router_ip_addr;
+
+    memcpy(arp_hdr->ar_tha, target_eth_addr, ETHER_ADDR_LEN);
+    arp_hdr->ar_tip = target_ip_addr;
+}
+
+
 void create_icmp_packet(struct sr_instance *sr, 
     sr_ethernet_hdr_t* buf, 
     uint16_t len, 

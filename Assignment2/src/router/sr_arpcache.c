@@ -30,28 +30,29 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
 void handle_arpreq(struct sr_instance *sr, struct sr_arpreq *request) {
 
     // If the cache still doesn't have IP, we need to re-send
-    sr_arpentry* entry = sr_arpcache_lookup(&(sr->cache), request->ip);
-    if (entry == NULL) {
-        time_t curtime = time(NULL);
-        if (difftime(curtime, request->sent) < 1.0) {
-            if (request->times_sent >= 5) {
-
-                // TODO: send icmp host unreachable to source addr of all pkts waiting on this request
-
-                arpreq_destroy(sr, request);
-                return;
-            }
-            _send_arp_request(sr, request);
-            request->sent = now;
-            request->times_sent++;
-            return;
-        }
+    struct sr_arpentry* entry = sr_arpcache_lookup(&(sr->cache), request->ip);
+    if (entry) {
+        // The cache has the IP, so we can send all of the packets waiting on it
+        _send_queued_ip_packets(sr, request, entry);
+        arpreq_destroy(sr, request);
+        return;
     }
 
-    // The cache has the IP, so we can send all of the packets waiting on it
+
+    time_t curtime = time(NULL);
+    if (difftime(curtime, request->sent) < 1.0) {
+        if (request->times_sent >= 5) {
+            // Host cannot be reached
+            _send_unreachable_to_queued_packets(sr, request);
+            arpreq_destroy(sr, request);
+            return;
+        }
+        _send_arp_request(sr, request);
+        request->sent = curtime;
+        request->times_sent++;
+        return;
+    }
     
-    arpreq_destroy(sr, request);
-    return;
 }
 
 void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
@@ -59,11 +60,39 @@ void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
 }
 
 void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpreq *request) {
-    // TODO
+    // Send ICMP type 3, code 1 (dest host unreachable)
+
+    
+
+    for (struct sr_packet* packet = request->packets; packet != NULL; packet = packet->next) {
+        
+
+        // TODO: Can I get the interface via MAC address?
+        sr_ethernet_hdr_t* enqueue_frame = packet->buf;
+        char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, enqueue_frame->ether_shost);
+
+        // Create our frame and get references to each layer's header
+        uint8_t outgoing[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)];
+        sr_ethernet_hdr_t* ethernet_hdr = (sr_ethernet_hdr_t*) outgoing;
+        sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t*) (outgoing + sizeof(sr_ethernet_hdr_t));
+        sr_icmp_t3_hdr_t* icmp_hdr = (sr_icmp_t3_hdr_t*) (ip_hdr + sizeof(sr_ip_hdr_t));
+
+        // Fill out the fields of each header
+
+        sr_send_packet(sr, outgoing, sizeof outgoing, interface);
+    }
 }
 
-void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request) {
-    // TODO
+void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request, struct sr_arpentry* arp_entry) {
+    // TODO: Which of these should I use?
+    char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, arp_entry->mac);
+    char interface[sr_IFACE_NAMELEN] = get_interface_from_ip(sr, arp_entry->ip);
+
+    for (struct sr_packet* packet = request->packets; packet != NULL; packet = packet->next) {
+        sr_ethernet_hdr_t* frame = packet->buf;
+        memcpy(frame->ether_dhost, arp_entry->mac, ETHER_ADDR_LEN);
+        sr_send_packet(sr, packet, packet->len, interface);
+    }
 }
 
 /* You should not need to touch the rest of this code. */

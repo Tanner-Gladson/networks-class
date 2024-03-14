@@ -118,6 +118,7 @@ void _sr_handle_ip_packet(struct sr_instance* sr, sr_ip_hdr_t * packet/* lent */
   
   // We ignore packets not targeted at this router
   if (ntohl(packet->ip_dst) not in hosts) {
+    // Send ICMP type 3, code 0 (dest net unreachable)
     return;
   }
   
@@ -141,7 +142,8 @@ void _sr_handle_ip_packet(struct sr_instance* sr, sr_ip_hdr_t * packet/* lent */
   }
 
   // Send (forward) IP packets
-  // Queue ARP requests
+  // Don't forget to decrement TLL, check if 0, and update checksum
+  // Queue as ARP request if not already in cache
 }
 
 
@@ -151,6 +153,7 @@ void _sr_handle_arp_packet(struct sr_instance* sr, sr_arp_hdr_t* packet/* lent *
   pass arp packet
 
   // We ignore packets not targeted at this router
+  // Check out  sr_arp_req_not_for_us()
   if (ntohl(packet->ar_tip) not in hosts) {
     return;
   }

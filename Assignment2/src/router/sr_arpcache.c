@@ -183,7 +183,7 @@ void create_icmp_packet(struct sr_instance *sr,
     // ICMP
     icmp_hdr->icmp_type = icmp_type;
     icmp_hdr->icmp_code = icmp_code;
-    icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(sr_icmp_t3_hdr_t));
+    icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(sr_icmp_t3_hdr_t)); // TODO: this appears to be incorrect given Piazza posts
 }
 
 /* You should not need to touch the rest of this code. */

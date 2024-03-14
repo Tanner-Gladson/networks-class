@@ -17,8 +17,6 @@
   See the comments in the header file for an idea of what it should look like.
 */
 void sr_arpcache_sweepreqs(struct sr_instance *sr) {
-    /* TODONE: fill in code here */
-
     struct sr_arpreq* req = sr->cache.requests;
     while (req != NULL) {
         struct sr_arpreq* next_req = req->next;
@@ -56,30 +54,77 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq *request) {
 }
 
 void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
-    // TODO
+
+    // Create our ARP ethernet packet and extract pointers to the headers
+    const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t);
+    uint8_t outgoing[len];
+    memset(&outgoing, 0, len);
+
+    sr_ethernet_hdr_t* ethernet_hdr = (sr_ethernet_hdr_t*) outgoing;
+    sr_arp_hdr_t* arp_hdr = (sr_arp_hdr_t*) (outgoing + sizeof(sr_ethernet_hdr_t));
+
+    /* Fill out the fields of each header */
+
+    // Ethernet
+    const char broadcast_addr[ETHER_ADDR_LEN] = {255};
+    memcpy(ethernet_hdr->ether_dhost, broadcast_addr, ETHER_ADDR_LEN);
+    memcpy(ethernet_hdr->ether_shost, this_router_mac_addr, ETHER_ADDR_LEN);
+    ethernet_hdr->ether_type = ethertype_arp;
+
+    // ARP
+    unsigned short  ar_hrd = arp_hrd_ethernet;
+    unsigned short  ar_pro = arp_hrd_ethernet;
+    unsigned char   ar_hln = ETHER_ADDR_LEN;
+    unsigned char   ar_pln = ETHER_ADDR_LEN;
+    unsigned short  ar_op = arp_op_request;
+    unsigned char   ar_sha[ETHER_ADDR_LEN];
+    uint32_t        ar_sip = this_router_ip_addr;             /* sender IP address */
+    unsigned char   ar_tha[ETHER_ADDR_LEN];
+    uint32_t        ar_tip = request->ip;
+
+    sr_send_packet(sr, outgoing, len, interface);
 }
 
 void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpreq *request) {
-    // Send ICMP type 3, code 1 (dest host unreachable)
-
-    
-
+    // Send ICMP type 3, code 1 (dest host unreachable) to the senders of each waiting packet
     for (struct sr_packet* packet = request->packets; packet != NULL; packet = packet->next) {
-        
 
-        // TODO: Can I get the interface via MAC address?
-        sr_ethernet_hdr_t* enqueue_frame = packet->buf;
-        char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, enqueue_frame->ether_shost);
+        // Extract the waiting frame
+        sr_ethernet_hdr_t* waiting_frame_eth = packet->buf;
+        sr_ip_hdr_t* waiting_frame_ip = packet->buf + sizeof(sr_ethernet_hdr_t);
 
         // Create our frame and get references to each layer's header
-        uint8_t outgoing[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)];
+        const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
+        uint8_t outgoing[len];
+        memset(&outgoing, 0, len);
+
         sr_ethernet_hdr_t* ethernet_hdr = (sr_ethernet_hdr_t*) outgoing;
         sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t*) (outgoing + sizeof(sr_ethernet_hdr_t));
         sr_icmp_t3_hdr_t* icmp_hdr = (sr_icmp_t3_hdr_t*) (ip_hdr + sizeof(sr_ip_hdr_t));
 
-        // Fill out the fields of each header
+        /* Fill out the fields of each header */
 
-        sr_send_packet(sr, outgoing, sizeof outgoing, interface);
+        // Ethernet
+        memcpy(ethernet_hdr->ether_dhost, waiting_frame_eth->ether_shost, ETHER_ADDR_LEN);
+        memcpy(ethernet_hdr->ether_shost, this_router_mac_addr, ETHER_ADDR_LEN);
+        ethernet_hdr->ether_type = ethertype_ip;
+
+        // IP
+        ip_hdr->ip_len = len - sizeof(sr_ethernet_hdr_t);
+        ip_hdr->ip_id = waiting_frame_ip->ip_id;
+        ip_hdr->ip_ttl = 64;
+        ip_hdr->ip_sum = cksum(ip_hdr, ip_hdr->ip_len);
+        ip_hdr->ip_src = this_router_ip;
+        ip_hdr->ip_dst = waiting_frame_ip->ip_src;
+        
+        // ICMP
+        icmp_hdr->icmp_type = 3;
+        icmp_hdr->icmp_code = 1; /* Host unreachable*/
+        icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(sr_icmp_t3_hdr_t));
+
+        // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
+        char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, waiting_frame_eth->ether_shost);
+        sr_send_packet(sr, outgoing, len, interface);
     }
 }
 
@@ -94,6 +139,10 @@ void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request, 
         sr_send_packet(sr, packet, packet->len, interface);
     }
 }
+
+
+/* Protocol Helper functions */
+
 
 /* You should not need to touch the rest of this code. */
 

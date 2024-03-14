@@ -28,23 +28,42 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
 }
 
 void handle_arpreq(struct sr_instance *sr, struct sr_arpreq *request) {
-    /* TODO: fill in code here */
 
-    /*
-    time_t curtime = time(NULL);
+    // If the cache still doesn't have IP, we need to re-send
+    sr_arpentry* entry = sr_arpcache_lookup(&(sr->cache), request->ip);
+    if (entry == NULL) {
+        time_t curtime = time(NULL);
+        if (difftime(curtime, request->sent) < 1.0) {
+            if (request->times_sent >= 5) {
 
+                // TODO: send icmp host unreachable to source addr of all pkts waiting on this request
 
-    if (difftime(curtime, request->sent) > 1.0) {
-        if (request->times_sent >= 5) {
-            send icmp host unreachable to source addr of all pkts waiting on this request
-            arpreq_destroy(sr, request);
+                arpreq_destroy(sr, request);
+                return;
+            }
+            _send_arp_request(sr, request);
+            request->sent = now;
+            request->times_sent++;
             return;
         }
-        send arp request
-        request->sent = now;
-        request->times_sent++;
     }
-    */
+
+    // The cache has the IP, so we can send all of the packets waiting on it
+    
+    arpreq_destroy(sr, request);
+    return;
+}
+
+void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
+    // TODO
+}
+
+void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpreq *request) {
+    // TODO
+}
+
+void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request) {
+    // TODO
 }
 
 /* You should not need to touch the rest of this code. */

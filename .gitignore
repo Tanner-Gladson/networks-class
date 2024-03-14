@@ -2,3 +2,4 @@
 proxy
 *.d
 *.o
+*.out

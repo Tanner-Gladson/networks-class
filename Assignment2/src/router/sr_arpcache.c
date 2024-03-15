@@ -54,22 +54,29 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq *request) {
 }
 
 void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
-
-    // Create our ARP ethernet packet and extract pointers to the headers
-    const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t);
-    uint8_t outgoing[len];
-    const char broadcast_addr[ETHER_ADDR_LEN] = {255};
+    if (request->packets == NULL) {
+        return; // No queued packets
+    }
     
+    const char broadcast_addr[ETHER_ADDR_LEN] = {255};
+    char* interface_name = request->packets->iface;
+    struct sr_if* interface = sr_get_interface(sr, interface_name);
+
+    uint8_t arp_request[sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)];
     create_arp_packet(
-        sr, 
-        outgoing, 
-        len, 
-        arp_op_request,
-        broadcast_addr, 
+        sr,
+        arp_request,
+        sizeof(arp_request),
+        broadcast_addr,
+        interface->addr, // TODO: Are interfaces storing in host-order? If so, change
+        hston(arp_op_request),
+        interface->addr, // TODO: Are interfaces storing in host-order? If so, change
+        interface->ip, // TODO: Are interfaces storing in host-order? If so, change
+        broadcast_addr,
         request->ip
     );
 
-    sr_send_packet(sr, outgoing, len, interface);
+    sr_send_packet(sr, arp_request, sizeof(arp_request), interface_name);
 }
 
 void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpreq *request) {
@@ -111,13 +118,19 @@ void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request, 
 
 
 /* Protocol Helper functions */
+
+/* Create a complete ARP packet (ethernet and arp). Uses values as-is, does not change byte order*/
 void create_arp_packet(
     struct sr_instance *sr, 
-    sr_ethernet_hdr_t* buf, 
-    uint16_t len, 
-    unsigned short arp_op,
-    char* target_eth_addr,
-    uint32_t target_ip_addr
+    sr_ethernet_hdr_t* buf, /* Buffer to be filled with packet */
+    uint16_t len, /* Length of entire packet */
+    char* ether_dhost, /* Destination Ethernet Address */
+    char* ether_shost, /* Source Ethernet Address */
+    unsigned short arp_op, /* ARP operation number */
+    char* arp_sha, /* Sender Hardware Address */
+    uint32_t arp_sip, /* Sender IP */
+    char* arp_tha, /* Target Hardware Address */
+    uint32_t arp_tip /* Target IP */
     ) 
 {
     assert(len >= sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t));
@@ -129,9 +142,8 @@ void create_arp_packet(
     /* Fill out the fields of each header */
 
     // Ethernet
-    
-    memcpy(ethernet_hdr->ether_dhost, target_eth_addr, ETHER_ADDR_LEN);
-    memcpy(ethernet_hdr->ether_shost, this_router_mac_addr, ETHER_ADDR_LEN); /* TODO: Reply: Set to recieving interface's addr, Request: set to the current arpreq’s first packet’s interface’s addr */
+    memcpy(ethernet_hdr->ether_dhost, ether_dhost, ETHER_ADDR_LEN);
+    memcpy(ethernet_hdr->ether_shost, ether_shost, ETHER_ADDR_LEN); /* TODO: Reply: Set to recieving interface's addr, Request: set to the current arpreq’s first packet’s interface’s addr */
     ethernet_hdr->ether_type = ethertype_arp;
 
     // ARP
@@ -141,14 +153,14 @@ void create_arp_packet(
     arp_hdr->ar_pln = 0x04;
     arp_hdr->ar_op = arp_op;
 
-    memcpy(arp_hdr->ar_sha, this_router_mac_addr, ETHER_ADDR_LEN); /* Set to recieving interface's addr */
-    arp_hdr->ar_sip = this_router_ip_addr; /* TODO: Reply: Set to recieving interface's ip, Request: set to current arpreq’s first packet’s interface’s ip */
+    memcpy(arp_hdr->ar_sha, arp_sha, ETHER_ADDR_LEN); /* Set to recieving interface's addr */
+    arp_hdr->ar_sip = arp_sip; /* TODO: Reply: Set to recieving interface's ip, Request: set to current arpreq’s first packet’s interface’s ip */
 
-    memcpy(arp_hdr->ar_tha, target_eth_addr, ETHER_ADDR_LEN);
-    arp_hdr->ar_tip = target_ip_addr;
+    memcpy(arp_hdr->ar_tha, arp_tha, ETHER_ADDR_LEN);
+    arp_hdr->ar_tip = arp_tip;
 }
 
-
+/* Create a complete ICMP packet (ethernet, ip, icmp). Uses values as-is, does not change byte order*/
 void create_icmp_packet(struct sr_instance *sr, 
     sr_ethernet_hdr_t* buf, 
     uint16_t len, 

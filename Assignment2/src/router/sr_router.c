@@ -180,7 +180,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
         }
 
         /* If the packet is ICMP Echo Request (type 8) for our interfaces, we reply with echo */
-        if (ntohl(ip_hdr->ip_dst) not in our interface IPs && icmp_header->icmp_code == 0x08) 
+        if (ip_hdr->ip_dst not in our interface IPs && icmp_header->icmp_code == 0x08) 
         {
             const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
             uint8_t outgoing[len];
@@ -236,26 +236,33 @@ void _sr_handle_arp_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr,
     sr_arp_hdr_t *arp_hdr = ether_hdr + sizeof(sr_ethernet_hdr_t);
 
     // We ignore packets not targeted at this router
-    // Check out  sr_arp_req_not_for_us()
-    if (arp_hdr->ar_tip not in our interface IPs)
+    // TODO: Check out sr_arp_req_not_for_us()
+    if (!_in_interfaces(sr, arp_hdr->ar_tip))
     {
         return;
     }
 
-    // We reply after recieving ARP request
-    if (arp_hdr->ar_pro == arp_op_request)
+    /* We were the target, so we reply to ARP request */
+    if (ntohs(arp_hdr->ar_pro) == arp_op_request)
     {
-        const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
-        uint8_t outgoing[len];
+        /* We need to find the receiving interface */
+        // TODO: how?
+        
+        uint8_t arp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)];
         create_arp_packet(
             sr,
-            outgoing,
-            len,
-            arp_op_reply,
-            ether_hdr->ether_shost,
-            arp_hdr->ar_sip
+            arp_reply,
+            sizeof(arp_reply),
+            ether_dhost = ether_hdr->ether_shost,
+            ether_shost = /* set to receiving interface’s addr */
+            arp_op = hston(arp_op_reply),
+            arp_sha = /* set to receiving interface’s addr */
+            arp_sip = /* set to receiving interface’s addr */
+            arp_tha = ether_hdr->ether_shost,
+            arp_tip = arp_hdr->ar_sip
         );
-        sr_send_packet(sr, outgoing, len, interface);
+
+        sr_send_packet(sr, arp_reply, sizeof(arp_reply), interface);
         return;
     }
 
@@ -265,4 +272,13 @@ void _sr_handle_arp_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr,
         sr_arpcache_insert(&(sr->cache), arp_hdr->ar_sha, arp_hdr->ar_sip);
         return;
     }
+}
+
+/* Check if the IP is in this router's interfaces. Does not convert bytes orders */
+int _in_interfaces(struct sr_instance *sr, const uint32_t ip) {
+    struct sr_if* interface = get_interface_from_ip(sr, ip);
+    if (interface) {
+        return 1;
+    }
+    return 0;
 }

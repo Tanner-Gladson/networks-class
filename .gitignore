@@ -3,3 +3,4 @@ proxy
 *.d
 *.o
 *.out
+*sr

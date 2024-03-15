@@ -82,27 +82,27 @@ void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
 void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpreq *request) {
     // Send ICMP type 3, code 1 (dest host unreachable) to the senders of each waiting packet
     for (struct sr_packet* packet = request->packets; packet != NULL; packet = packet->next) {
-
         // Extract the waiting frame
         sr_ethernet_hdr_t* waiting_frame_eth = packet->buf;
         sr_ip_hdr_t* waiting_frame_ip = packet->buf + sizeof(sr_ethernet_hdr_t);
 
-        // Create our frame and get references to each layer's header
-        const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
-        uint8_t outgoing[len];
-        // create_icmp_packet(sr, 
-        //     outgoing, 
-        //     len, 
-        //     waiting_frame_eth->ether_shost, 
-        //     waiting_frame_ip->ip_id, 
-        //     waiting_frame_ip->ip_src, 
-        //     0x03, 
-        //     0x01
-        // ); TODO
+        struct sr_if* interface = get_interface_from_eth(sr, waiting_frame_eth->ether_dhost);
+        assert(interface);
 
-        // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
-        char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, waiting_frame_eth->ether_shost);
-        sr_send_packet(sr, outgoing, len, interface);
+        uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)];
+        create_icmp_packet(sr,
+            icmp_reply,
+            sizeof(icmp_reply),
+            waiting_frame_eth->ether_shost,
+            interface->addr, /* TODO: If interface stores in host-byte, use hton? */
+            interface->ip, /* TODO: Made my best guess here, TODO: If interfaces store in host-byte, convert to network */
+            waiting_frame_ip->ip_src,
+            0x03,
+            0x01,
+            waiting_frame_ip
+        );
+
+        sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface->name);
     }
 }
 

@@ -66,7 +66,6 @@ void sr_init(struct sr_instance *sr)
  *
  *---------------------------------------------------------------------*/
 
-// TODO: Make sure that every time you edit a frame its in Network Byte-Order
 
 void sr_handlepacket(struct sr_instance *sr,
                      uint8_t *packet /* lent */,

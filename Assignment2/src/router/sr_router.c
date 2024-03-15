@@ -66,6 +66,8 @@ void sr_init(struct sr_instance *sr)
  *
  *---------------------------------------------------------------------*/
 
+// TODO: Make sure that every time you edit a frame its in Network Byte-Order
+
 void sr_handlepacket(struct sr_instance *sr,
                      uint8_t *packet /* lent */,
                      unsigned int len,
@@ -224,14 +226,14 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
     }
 }
 
-void _sr_handle_arp_packet(struct sr_instance *sr, sr_ethernet_hdr_t *packet, unsigned int len)
+void _sr_handle_arp_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, unsigned int len)
 {
     if (len < sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t))
     {
         fprintf(stderr, "Failed to cast ARP header, insufficient length\n");
         return;
     }
-    sr_arp_hdr_t *arp_hdr = packet + sizeof(sr_ethernet_hdr_t);
+    sr_arp_hdr_t *arp_hdr = ether_hdr + sizeof(sr_ethernet_hdr_t);
 
     // We ignore packets not targeted at this router
     // Check out  sr_arp_req_not_for_us()
@@ -245,13 +247,14 @@ void _sr_handle_arp_packet(struct sr_instance *sr, sr_ethernet_hdr_t *packet, un
     {
         const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
         uint8_t outgoing[len];
-        create_arp_request(
+        create_arp_packet(
             sr,
             outgoing,
             len,
             arp_op_reply,
-            arp_hdr->ar_sha,
-            arp_hdr->ar_sip);
+            ether_hdr->ether_shost,
+            arp_hdr->ar_sip
+        );
         sr_send_packet(sr, outgoing, len, interface);
         return;
     }

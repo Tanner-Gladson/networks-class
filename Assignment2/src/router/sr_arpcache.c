@@ -60,12 +60,12 @@ void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
     uint8_t outgoing[len];
     const char broadcast_addr[ETHER_ADDR_LEN] = {255};
     
-    create_arp_request(
+    create_arp_packet(
         sr, 
         outgoing, 
         len, 
         arp_op_request,
-        broadcast_addr,
+        broadcast_addr, 
         request->ip
     );
 
@@ -131,18 +131,18 @@ void create_arp_packet(
     // Ethernet
     
     memcpy(ethernet_hdr->ether_dhost, target_eth_addr, ETHER_ADDR_LEN);
-    memcpy(ethernet_hdr->ether_shost, this_router_mac_addr, ETHER_ADDR_LEN);
+    memcpy(ethernet_hdr->ether_shost, this_router_mac_addr, ETHER_ADDR_LEN); /* TODO: Reply: Set to recieving interface's addr, Request: set to the current arpreq’s first packet’s interface’s addr */
     ethernet_hdr->ether_type = ethertype_arp;
 
     // ARP
     arp_hdr->ar_hrd = arp_hrd_ethernet;
-    arp_hdr->ar_pro = arp_hrd_ethernet;
+    arp_hdr->ar_pro = ethertype_ip;
     arp_hdr->ar_hln = ETHER_ADDR_LEN;
-    arp_hdr->ar_pln = ETHER_ADDR_LEN;
+    arp_hdr->ar_pln = 0x04;
     arp_hdr->ar_op = arp_op;
 
-    memcpy(arp_hdr->ar_sha, this_router_mac_addr, ETHER_ADDR_LEN);
-    arp_hdr->ar_sip = this_router_ip_addr;
+    memcpy(arp_hdr->ar_sha, this_router_mac_addr, ETHER_ADDR_LEN); /* Set to recieving interface's addr */
+    arp_hdr->ar_sip = this_router_ip_addr; /* TODO: Reply: Set to recieving interface's ip, Request: set to current arpreq’s first packet’s interface’s ip */
 
     memcpy(arp_hdr->ar_tha, target_eth_addr, ETHER_ADDR_LEN);
     arp_hdr->ar_tip = target_ip_addr;

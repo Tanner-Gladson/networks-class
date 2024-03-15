@@ -6,10 +6,12 @@
 #include <pthread.h>
 #include <sched.h>
 #include <string.h>
+#include <assert.h>
 #include "sr_arpcache.h"
 #include "sr_router.h"
 #include "sr_if.h"
 #include "sr_protocol.h"
+#include "sr_utils.h"
 
 /*
   This function gets called every second. For each request sent out, we keep
@@ -32,7 +34,7 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq *request) {
     if (entry) {
         // The cache has the IP, so we can send all of the packets waiting on it
         _send_queued_ip_packets(sr, request, entry);
-        arpreq_destroy(sr, request);
+        sr_arpreq_destroy(&(sr->cache), request);
         return;
     }
 
@@ -42,7 +44,7 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq *request) {
         if (request->times_sent >= 5) {
             // Host cannot be reached
             _send_unreachable_to_queued_packets(sr, request);
-            arpreq_destroy(sr, request);
+            sr_arpreq_destroy(&(sr->cache), request);
             return;
         }
         _send_arp_request(sr, request);
@@ -58,7 +60,7 @@ void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
         return; // No queued packets
     }
     
-    const char broadcast_addr[ETHER_ADDR_LEN] = {255};
+    unsigned char broadcast_addr[ETHER_ADDR_LEN] = {255};
     char* interface_name = request->packets->iface;
     struct sr_if* interface = sr_get_interface(sr, interface_name);
 
@@ -69,13 +71,14 @@ void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
         sizeof(arp_request),
         broadcast_addr,
         interface->addr, // TODO: Are interfaces storing in host-order? If so, change
-        hston(arp_op_request),
+        htons(arp_op_request),
         interface->addr, // TODO: Are interfaces storing in host-order? If so, change
         interface->ip, // TODO: Are interfaces storing in host-order? If so, change
         broadcast_addr,
         request->ip
     );
 
+    /* TODO: Do I send out all the interfaces? */
     sr_send_packet(sr, arp_request, sizeof(arp_request), interface_name);
 }
 
@@ -83,8 +86,8 @@ void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpre
     // Send ICMP type 3, code 1 (dest host unreachable) to the senders of each waiting packet
     for (struct sr_packet* packet = request->packets; packet != NULL; packet = packet->next) {
         // Extract the waiting frame
-        sr_ethernet_hdr_t* waiting_frame_eth = packet->buf;
-        sr_ip_hdr_t* waiting_frame_ip = packet->buf + sizeof(sr_ethernet_hdr_t);
+        sr_ethernet_hdr_t* waiting_frame_eth = (sr_ethernet_hdr_t*) (packet->buf);
+        sr_ip_hdr_t* waiting_frame_ip = (sr_ip_hdr_t*) (packet->buf + sizeof(sr_ethernet_hdr_t));
 
         struct sr_if* interface = get_interface_from_eth(sr, waiting_frame_eth->ether_dhost);
         assert(interface);
@@ -108,11 +111,14 @@ void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpre
 
 void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request, struct sr_arpentry* arp_entry) {
     for (struct sr_packet* packet = request->packets; packet != NULL; packet = packet->next) {
-        sr_ethernet_hdr_t* frame = packet->buf;
+        
+        /* Each packet processed seperately */
+        sr_ethernet_hdr_t* frame = (sr_ethernet_hdr_t*) packet->buf;
+        struct sr_if* interface = sr_get_interface(sr, packet->iface);
 
         memcpy(frame->ether_dhost, arp_entry->mac, ETHER_ADDR_LEN);
-        memcpy(frame->ether_shost, this_router_mac, ETHER_ADDR_LEN);
-        sr_send_packet(sr, packet, packet->len, packet->iface);
+        memcpy(frame->ether_shost, interface->addr, ETHER_ADDR_LEN);
+        sr_send_packet(sr, (uint8_t *) frame, packet->len, interface->name);
     }
 }
 
@@ -122,14 +128,14 @@ void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request, 
 /* Create a complete ARP packet (ethernet and arp). Uses values as-is, does not change byte order*/
 void create_arp_packet(
     struct sr_instance *sr, 
-    sr_ethernet_hdr_t* buf, /* Buffer to be filled with packet */
+    uint8_t* buf, /* Buffer to be filled with packet */
     uint16_t len, /* Length of entire packet */
-    char* ether_dhost, /* Destination Ethernet Address */
-    char* ether_shost, /* Source Ethernet Address */
+    unsigned char* ether_dhost, /* Destination Ethernet Address */
+    unsigned char* ether_shost, /* Source Ethernet Address */
     unsigned short arp_op, /* ARP operation number */
-    char* arp_sha, /* Sender Hardware Address */
+    unsigned char* arp_sha, /* Sender Hardware Address */
     uint32_t arp_sip, /* Sender IP */
-    char* arp_tha, /* Target Hardware Address */
+    unsigned char* arp_tha, /* Target Hardware Address */
     uint32_t arp_tip /* Target IP */
     ) 
 {
@@ -162,15 +168,15 @@ void create_arp_packet(
 
 /* Create a complete ICMP packet (ethernet, ip, icmp). Give most arguments in Network-Byte-Order. */
 void create_icmp_packet(struct sr_instance *sr, 
-    sr_ethernet_hdr_t* buf, /* Buffer to be overwritten with complete packet */
+    uint8_t* buf, /* Buffer to be overwritten with complete packet */
     uint16_t len, /* Length of entire buffer, give in host-byte order */
-    char* ether_dhost, /* set to original packet’s ether_shost */
-    char* ether_shost, /* set to outgoing interface’s addr */
+    unsigned char* ether_dhost, /* set to original packet’s ether_shost */
+    unsigned char* ether_shost, /* set to outgoing interface’s addr */
     uint32_t ip_src, /* set to ip of our interface or outgoing interface based on whether the original packet was destined for us or not */
     uint32_t ip_dst, /* set to original packet’s ip_src */
     uint8_t icmp_type, /* ICMP type */
     uint8_t icmp_code, /* ICMP code*/
-    uint8_t* icmp_data /* Optional. Null if echo reply, else original packet ip header */
+    sr_ip_hdr_t* icmp_data /* Optional. Null if echo reply, else original packet ip header */
     ) 
 {
     /* Validate Buffer */
@@ -178,7 +184,7 @@ void create_icmp_packet(struct sr_instance *sr,
     memset(&buf, 0, len);
     sr_ethernet_hdr_t* ethernet_hdr = (sr_ethernet_hdr_t*) buf;
     sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t*) (buf + sizeof(sr_ethernet_hdr_t));
-    sr_icmp_t3_hdr_t* icmp_hdr = (sr_icmp_t3_hdr_t*) (ip_hdr + sizeof(sr_ip_hdr_t));
+    sr_icmp_t3_hdr_t* icmp_hdr = (sr_icmp_t3_hdr_t*) (buf + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
 
     /* Fill out the fields of each header */
 

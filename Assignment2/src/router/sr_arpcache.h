@@ -13,39 +13,43 @@
 #include <pthread.h>
 #include "sr_if.h"
 
-#define SR_ARPCACHE_SZ    100
-#define SR_ARPCACHE_TO    15.0
+#define SR_ARPCACHE_SZ 100
+#define SR_ARPCACHE_TO 15.0
 
-struct sr_packet {
-    uint8_t *buf;               /* A raw Ethernet frame, presumably with the dest MAC empty */
-    unsigned int len;           /* Length of raw Ethernet frame */
-    char *iface;                /* The outgoing interface */
-    struct sr_packet *next;
+struct sr_packet
+{
+   uint8_t *buf;     /* A raw Ethernet frame, presumably with the dest MAC empty */
+   unsigned int len; /* Length of raw Ethernet frame */
+   char *iface;      /* The outgoing interface */
+   struct sr_packet *next;
 };
 
-struct sr_arpentry {
-    unsigned char mac[6];
-    uint32_t ip;                /* IP addr in network byte order */
-    time_t added;
-    int valid;
+struct sr_arpentry
+{
+   unsigned char mac[6];
+   uint32_t ip; /* IP addr in network byte order */
+   time_t added;
+   int valid;
 };
 
-struct sr_arpreq {
-    uint32_t ip;
-    time_t sent;                /* Last time this ARP request was sent. You
-                                   should update this. If the ARP request was
-                                   never sent, will be 0. */
-    uint32_t times_sent;        /* Number of times this request was sent. You
-                                   should update this. */
-    struct sr_packet *packets;  /* List of pkts waiting on this req to finish */
-    struct sr_arpreq *next;
+struct sr_arpreq
+{
+   uint32_t ip;
+   time_t sent;               /* Last time this ARP request was sent. You
+                                 should update this. If the ARP request was
+                                 never sent, will be 0. */
+   uint32_t times_sent;       /* Number of times this request was sent. You
+                                 should update this. */
+   struct sr_packet *packets; /* List of pkts waiting on this req to finish */
+   struct sr_arpreq *next;
 };
 
-struct sr_arpcache {
-    struct sr_arpentry entries[SR_ARPCACHE_SZ];
-    struct sr_arpreq *requests;
-    pthread_mutex_t lock;
-    pthread_mutexattr_t attr;
+struct sr_arpcache
+{
+   struct sr_arpentry entries[SR_ARPCACHE_SZ];
+   struct sr_arpreq *requests;
+   pthread_mutex_t lock;
+   pthread_mutexattr_t attr;
 };
 
 /* Checks if an IP->MAC mapping is in the cache. IP is in network byte order.
@@ -60,10 +64,10 @@ struct sr_arpentry *sr_arpcache_lookup(struct sr_arpcache *cache, uint32_t ip);
    A pointer to the ARP request is returned; it should be freed. The caller
    can remove the ARP request from the queue by calling sr_arpreq_destroy. */
 struct sr_arpreq *sr_arpcache_queuereq(struct sr_arpcache *cache,
-                         uint32_t ip,
-                         uint8_t *packet,               /* borrowed */
-                         unsigned int packet_len,
-                         char *iface);
+                                       uint32_t ip,
+                                       uint8_t *packet, /* borrowed */
+                                       unsigned int packet_len,
+                                       char *iface);
 
 /* This method performs two functions:
    1) Looks up this IP in the request queue. If it is found, returns a pointer
@@ -85,10 +89,39 @@ void sr_arpcache_dump(struct sr_arpcache *cache);
    a destructor, and a cleanup thread times out cache entries every 15
    seconds. */
 
-int   sr_arpcache_init(struct sr_arpcache *cache);
-int   sr_arpcache_destroy(struct sr_arpcache *cache);
+int sr_arpcache_init(struct sr_arpcache *cache);
+int sr_arpcache_destroy(struct sr_arpcache *cache);
 void *sr_arpcache_timeout(void *cache_ptr);
 void handle_arpreq(struct sr_instance *, struct sr_arpreq *);
+
+/* Protocol Helper Functions */
+void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request);
+void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpreq *request);
+void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request, struct sr_arpentry *arp_entry);
+void create_arp_packet(
+    struct sr_instance *sr,
+    uint8_t *buf, /* Buffer to be filled with packet */
+    uint16_t len,           /* Length of entire packet */
+    unsigned char *ether_dhost,      /* Destination Ethernet Address */
+    unsigned char *ether_shost,      /* Source Ethernet Address */
+    unsigned short arp_op,  /* ARP operation number */
+    unsigned char *arp_sha,          /* Sender Hardware Address */
+    uint32_t arp_sip,       /* Sender IP */
+    unsigned char *arp_tha,          /* Target Hardware Address */
+    uint32_t arp_tip        /* Target IP */
+);
+void create_icmp_packet(
+    struct sr_instance *sr,
+    uint8_t *buf, /* Buffer to be overwritten with complete packet */
+    uint16_t len,           /* Length of entire buffer, give in host-byte order */
+    unsigned char *ether_dhost,      /* set to original packet’s ether_shost */
+    unsigned char *ether_shost,      /* set to outgoing interface’s addr */
+    uint32_t ip_src,        /* set to ip of our interface or outgoing interface based on whether the original packet was destined for us or not */
+    uint32_t ip_dst,        /* set to original packet’s ip_src */
+    uint8_t icmp_type,      /* ICMP type */
+    uint8_t icmp_code,      /* ICMP code*/
+    sr_ip_hdr_t *icmp_data      /* Optional. Null if echo reply, else original packet ip header */
+);
 
 /* IMPORTANT: To avoid circular dependencies, do a forward declaration of any
 methods from other files that you need to use. For example, if your sr_arpcache

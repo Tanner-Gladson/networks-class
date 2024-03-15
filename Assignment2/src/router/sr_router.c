@@ -87,15 +87,15 @@ void sr_handlepacket(struct sr_instance *sr,
 
     if (ethertype(packet) == ethertype_ip)
     {
-        _sr_handle_ip_packet(sr, (sr_ethernet_hdr_t *)packet, len);
+        _sr_handle_ip_packet(sr, packet, len);
     }
     else
     {
-        _sr_handle_arp_packet(sr, (sr_ethernet_hdr_t *)packet, len);
+        _sr_handle_arp_packet(sr, packet, len);
     }
 }
 
-void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, unsigned int len)
+void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len)
 {
     /* Check that IP header is completetly valid */    
     if (len < sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t))
@@ -103,7 +103,9 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
         fprintf(stderr, "Failed to cast IP header, insufficient length\n");
         return;
     }
-    sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(ether_hdr + sizeof(sr_ethernet_hdr_t));
+
+    sr_ethernet_hdr_t* ether_hdr = (sr_ethernet_hdr_t*) buf;
+    sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(buf + sizeof(sr_ethernet_hdr_t));
     if (cksum(ip_hdr, sizeof(sr_ip_hdr_t)) != ntohs(ip_hdr->ip_sum))
     {
         fprintf(stderr, "Failed to handle IP packet, invalid checksum\n");
@@ -134,7 +136,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
     }
 
     /* Interfaces don't support TCP/UDP, return ICMP type 3, code 3 (port unreachable)*/
-    if (ip_protocol(ip_hdr) == 0x06 || ip_protocol(ip_hdr) == 0x11) {
+    if (ip_protocol((uint8_t *) ip_hdr) == 0x06 || ip_protocol((uint8_t *) ip_hdr) == 0x11) {
         if (_in_interfaces(sr, ip_hdr->ip_dst)) {
             struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
             assert(interface);
@@ -157,7 +159,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
     }
 
     /* Handle ICMP requests seperately */
-    if (ip_protocol(ip_hdr) == ip_protocol_icmp)
+    if (ip_protocol((uint8_t *) ip_hdr) == ip_protocol_icmp)
     {
         /* Check if valid ICMP header */
         unsigned int icmp_len = len - sizeof(sr_ip_hdr_t);
@@ -166,15 +168,15 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
             fprintf(stderr, "Failed to cast ICMP header, insufficient length\n");
             return;
         }
-        sr_icmp_hdr_t *icmp_header = ip_hdr + sizeof(sr_ip_hdr_t);
-        if (cksum(icmp_header, sizeof(sr_icmp_hdr_t)) != ntohs(icmp_header->icmp_sum))
+        sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t*) (buf + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
+        if (cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)) != ntohs(icmp_hdr->icmp_sum))
         {
             fprintf(stderr, "Failed to handle ICMP packet, invalid checksum\n");
             return;
         }
 
         /* If the packet is ICMP Echo Request (type 8) for our interfaces, we reply with echo */
-        if (_in_interfaces(sr, ip_hdr->ip_dst) && icmp_header->icmp_code == 0x08) 
+        if (_in_interfaces(sr, ip_hdr->ip_dst) && icmp_hdr->icmp_code == 0x08) 
         {
             struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
             assert(interface);
@@ -196,8 +198,8 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
     }
 
     /* Forward all other IP packets unless they're expired */
-    ip_hdr->ip_ttl -= hston(ntohs(ip_hdr->ip_ttl) - 1);
-    if (ntohs(ip_hdr->ip_ttl) == 0) {
+    ip_hdr->ip_ttl -= ip_hdr->ip_ttl - 1;
+    if (ip_hdr->ip_ttl == 0) {
         struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
         assert(interface);
 
@@ -215,7 +217,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
             );
         sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface->name);
     }
-    ip_hdr->ip_sum = hston(cksum(ip_hdr, sizeof(sr_ip_hdr_t)));
+    ip_hdr->ip_sum = htons(cksum(ip_hdr, sizeof(sr_ip_hdr_t)));
 
     /* We can send if already in ARP cache, else queue for sending */
     uint32_t longest_prefix = _find_longest_prefix(sr, ip_hdr->ip_dst);
@@ -225,26 +227,27 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
     if (arp_entry) {
         memcpy(ether_hdr->ether_dhost, arp_entry->mac, ETHER_ADDR_LEN);
         memcpy(ether_hdr->ether_shost, interface->addr, ETHER_ADDR_LEN); // TODO: If interface stores in host-order, change this
-        sr_send_packet(sr, ether_hdr, len, interface->name);
+        sr_send_packet(sr, (uint8_t*) ether_hdr, len, interface->name);
     } else {
         sr_arpcache_queuereq(
             &(sr->cache),
             ip_hdr->ip_dst,
-            ether_hdr,
+            (uint8_t*) ether_hdr,
             len,
             interface->name
         );
     }
 }
 
-void _sr_handle_arp_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, unsigned int len)
+void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len)
 {
     if (len < sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t))
     {
         fprintf(stderr, "Failed to cast ARP header, insufficient length\n");
         return;
     }
-    sr_arp_hdr_t *arp_hdr = ether_hdr + sizeof(sr_ethernet_hdr_t);
+    sr_ethernet_hdr_t* ether_hdr = (sr_ethernet_hdr_t*) buf;
+    sr_arp_hdr_t *arp_hdr = (sr_arp_hdr_t *) (buf + sizeof(sr_ethernet_hdr_t));
 
     /* Ignore ARP packets not targeted at this router */
     if (!_in_interfaces(sr, arp_hdr->ar_tip))
@@ -272,7 +275,7 @@ void _sr_handle_arp_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr,
             sizeof(arp_reply),
             ether_hdr->ether_shost,
             interface->addr, // TODO: Are interfaces storing in host-order? If so, change
-            hston(arp_op_reply),
+            htons(arp_op_reply),
             interface->addr, // TODO: Are interfaces storing in host-order? If so, change
             interface->ip, // TODO: Are interfaces storing in host-order? If so, change
             ether_hdr->ether_shost,

@@ -90,15 +90,15 @@ void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpre
         // Create our frame and get references to each layer's header
         const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
         uint8_t outgoing[len];
-        create_icmp_packet(sr, 
-            outgoing, 
-            len, 
-            waiting_frame_eth->ether_shost, 
-            waiting_frame_ip->ip_id, 
-            waiting_frame_ip->ip_src, 
-            0x03, 
-            0x01
-        );
+        // create_icmp_packet(sr, 
+        //     outgoing, 
+        //     len, 
+        //     waiting_frame_eth->ether_shost, 
+        //     waiting_frame_ip->ip_id, 
+        //     waiting_frame_ip->ip_src, 
+        //     0x03, 
+        //     0x01
+        // ); TODO
 
         // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
         char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, waiting_frame_eth->ether_shost);
@@ -149,8 +149,8 @@ void create_arp_packet(
     // ARP
     arp_hdr->ar_hrd = htons(arp_hrd_ethernet);
     arp_hdr->ar_pro = htons(ethertype_ip);
-    arp_hdr->ar_hln = htons(ETHER_ADDR_LEN);
-    arp_hdr->ar_pln = htons(0x04);
+    arp_hdr->ar_hln = ETHER_ADDR_LEN;
+    arp_hdr->ar_pln = 0x04;
     arp_hdr->ar_op = arp_op;
 
     memcpy(arp_hdr->ar_sha, arp_sha, ETHER_ADDR_LEN);
@@ -194,8 +194,8 @@ void create_icmp_packet(struct sr_instance *sr,
     } else {
         ip_hdr->ip_off = htons(IP_DF);
     }
-    ip_hdr->ip_ttl = htons(64);
-    ip_hdr->ip_p = htons(ip_protocol_icmp);
+    ip_hdr->ip_ttl = 64;
+    ip_hdr->ip_p = ip_protocol_icmp;
     ip_hdr->ip_src = ip_src;
     ip_hdr->ip_dst = ip_dst;
     ip_hdr->ip_sum = htons(cksum(ip_hdr, sizeof(sr_ip_hdr_t)));

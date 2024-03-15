@@ -80,11 +80,6 @@ void sr_handlepacket(struct sr_instance *sr,
 
     printf("*** -> Received packet of length %d \n", len);
 
-    /*9
-    Notes:
-     - Use sr_send_packet() for sending a packet out an interface
-    */
-
     if (len < sizeof(sr_ethernet_hdr_t))
     {
         fprintf(stderr, "Failed to cast ETHERNET header, insufficient length\n");
@@ -97,11 +92,8 @@ void sr_handlepacket(struct sr_instance *sr,
     }
     else
     {
-
         _sr_handle_arp_packet(sr, (sr_ethernet_hdr_t *)packet, len);
     }
-
-    // "Send ICMP messages based on certain conditions"
 }
 
 void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, unsigned int len)
@@ -113,30 +105,42 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
         return;
     }
     sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(ether_hdr + sizeof(sr_ethernet_hdr_t));
-    if (cksum(ip_hdr, sizeof(sr_ip_hdr_t)) != ntohl(ip_hdr->ip_sum))
+    if (cksum(ip_hdr, sizeof(sr_ip_hdr_t)) != ntohs(ip_hdr->ip_sum))
     {
         fprintf(stderr, "Failed to handle IP packet, invalid checksum\n");
         return;
     }
 
     /* Send ICMP type 3, code 0 (dest net unreachable) */
-    if (ntohl(ip_hdr->ip_dst) not in known hosts)
+    if (ip_hdr->ip_dst not in known hosts)
     {
-        const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
-        uint8_t outgoing[len];
-        create_icmp_packet(sr,
-                        outgoing,
-                        len,
-                        ether_hdr->ether_shost,
-                        ip_hdr->ip_id,
-                        ip_hdr->ip_src,
-                        0x03,
-                        0x00
-        );
+        uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)];
+        // create_icmp_packet(sr,
+        //                 outgoing,
+        //                 len,
+        //                 ether_hdr->ether_shost,
+        //                 ip_hdr->ip_id,
+        //                 ip_hdr->ip_src,
+        //                 0x03,
+        //                 0x00
+        // ); TODO
 
         // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
-        char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, ether_hdr->ether_shost);
-        sr_send_packet(sr, outgoing, len, interface);
+        char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, ether_hdr->ether_dhost);
+
+        create_icmp_packet(sr,
+            icmp_reply,
+            sizeof(icmp_reply),
+            ether_dhost = ether_hdr->ether_shost,
+            ether_shost = interface->addr,
+            ip_src = ip_hdr->ip_dst, /* TODO: What? set to ip of our interface or outgoing interface based on whether the original packet was destined for us or not */
+            ip_dst = ip_hdr->ip_src,
+            icmp_type = 0x03,
+            icmp_code = 0x00,
+            icmp_data = ip_hdr
+        )
+
+        sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface);
         return;
     }
 
@@ -146,15 +150,15 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
             
             const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
             uint8_t outgoing[len];
-            create_icmp_packet(sr,
-                            outgoing,
-                            len,
-                            ether_hdr->ether_shost,
-                            ip_hdr->ip_id,
-                            ip_hdr->ip_src,
-                            0x03,
-                            0x03
-            );
+            // create_icmp_packet(sr,
+            //                 outgoing,
+            //                 len,
+            //                 ether_hdr->ether_shost,
+            //                 ip_hdr->ip_id,
+            //                 ip_hdr->ip_src,
+            //                 0x03,
+            //                 0x03
+            // ); TODO
 
             // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
             char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, ether_hdr->ether_shost);
@@ -184,15 +188,15 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
         {
             const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
             uint8_t outgoing[len];
-            create_icmp_packet(sr,
-                            outgoing,
-                            len,
-                            ether_hdr->ether_shost,
-                            ip_hdr->ip_id,
-                            ip_hdr->ip_src,
-                            0x00,
-                            0x00
-            );
+            // create_icmp_packet(sr,
+            //                 outgoing,
+            //                 len,
+            //                 ether_hdr->ether_shost,
+            //                 ip_hdr->ip_id,
+            //                 ip_hdr->ip_src,
+            //                 0x00,
+            //                 0x00
+            // ); TODO
 
             // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
             char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, ether_hdr->ether_shost);
@@ -205,15 +209,15 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
     if (ntohs(ip_hdr->ip_ttl) == 0) {
         const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
         uint8_t outgoing[len];
-        create_icmp_packet(sr,
-                        outgoing,
-                        len,
-                        ether_hdr->ether_shost,
-                        ip_hdr->ip_id,
-                        ip_hdr->ip_src,
-                        0x11,
-                        0x00
-        );
+        // create_icmp_packet(sr,
+        //                 outgoing,
+        //                 len,
+        //                 ether_hdr->ether_shost,
+        //                 ip_hdr->ip_id,
+        //                 ip_hdr->ip_src,
+        //                 0x11,
+        //                 0x00
+        // ); TODO
 
         // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
         char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, ether_hdr->ether_shost);
@@ -273,13 +277,13 @@ void _sr_handle_arp_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr,
             sr,
             arp_reply,
             sizeof(arp_reply),
-            ether_dhost = ether_hdr->ether_shost,
+            ether_hdr->ether_shost,
             ether_shost = /* set to receiving interface’s addr */
-            arp_op = hston(arp_op_reply),
+            hston(arp_op_reply),
             arp_sha = /* set to receiving interface’s addr */
             arp_sip = /* set to receiving interface’s addr */
-            arp_tha = ether_hdr->ether_shost,
-            arp_tip = arp_hdr->ar_sip
+            ether_hdr->ether_shost,
+            arp_hdr->ar_sip
         );
 
         sr_send_packet(sr, arp_reply, sizeof(arp_reply), interface);

@@ -142,7 +142,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
 
     /* Interfaces don't support TCP/UDP, return ICMP type 3, code 3 (port unreachable)*/
     if (ip_protocol(ip_hdr) == 0x06 || ip_protocol(ip_hdr) == 0x11) {
-        if (ip_hdr->ip_dst is one of routers interfaces) {
+        if (_in_interfaces(sr, ip_hdr->ip_dst)) {
             
             const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
             uint8_t outgoing[len];
@@ -180,7 +180,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
         }
 
         /* If the packet is ICMP Echo Request (type 8) for our interfaces, we reply with echo */
-        if (ip_hdr->ip_dst not in our interface IPs && icmp_header->icmp_code == 0x08) 
+        if (!_in_interfaces(sr, ip_hdr->ip_dst) && icmp_header->icmp_code == 0x08) 
         {
             const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
             uint8_t outgoing[len];
@@ -200,13 +200,32 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
         }
     }
 
-    /* Forward all other IP packets */
+    /* Forward all other IP packets unles they're expired */
     ip_hdr->ip_ttl -= hston(ntohs(ip_hdr->ip_ttl) - 1);
+    if (ntohs(ip_hdr->ip_ttl) == 0) {
+        const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
+        uint8_t outgoing[len];
+        create_icmp_packet(sr,
+                        outgoing,
+                        len,
+                        ether_hdr->ether_shost,
+                        ip_hdr->ip_id,
+                        ip_hdr->ip_src,
+                        0x11,
+                        0x00
+        );
+
+        // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
+        char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, ether_hdr->ether_shost);
+        sr_send_packet(sr, outgoing, len, interface);
+    }
     ip_hdr->ip_sum = hston(cksum(ip_hdr, sizeof(sr_ip_hdr_t)));
 
+    // TODO: We need to search for longest prefix before forwarding?
+
     /* We can send if already in ARP cache, else queue for sending */
-    sr_arpentry* arp_entry = sr_arpcache_lookup(&(sr->cache), ip_hdr->ip_dst);
-    if (arpentry) {
+    struct sr_arpentry* arp_entry = sr_arpcache_lookup(&(sr->cache), ip_hdr->ip_dst);
+    if (arp_entry) {
         memcpy(ether_hdr->ether_dhost, arp_entry->mac, ETHER_ADDR_LEN);
         memcpy(ether_hdr->ether_shost, this_router_mac, ETHER_ADDR_LEN);
 
@@ -247,6 +266,7 @@ void _sr_handle_arp_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr,
     {
         /* We need to find the receiving interface */
         // TODO: how?
+        struct sr_if* interface = get_interface_from_ip(sr, arp_hdr->ar_tip);
         
         uint8_t arp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)];
         create_arp_packet(

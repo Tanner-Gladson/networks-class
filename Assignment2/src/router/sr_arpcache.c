@@ -143,32 +143,35 @@ void create_arp_packet(
 
     // Ethernet
     memcpy(ethernet_hdr->ether_dhost, ether_dhost, ETHER_ADDR_LEN);
-    memcpy(ethernet_hdr->ether_shost, ether_shost, ETHER_ADDR_LEN); /* TODO: Reply: Set to recieving interface's addr, Request: set to the current arpreq’s first packet’s interface’s addr */
-    ethernet_hdr->ether_type = ethertype_arp;
+    memcpy(ethernet_hdr->ether_shost, ether_shost, ETHER_ADDR_LEN);
+    ethernet_hdr->ether_type = htons(ethertype_arp);
 
     // ARP
-    arp_hdr->ar_hrd = arp_hrd_ethernet;
-    arp_hdr->ar_pro = ethertype_ip;
-    arp_hdr->ar_hln = ETHER_ADDR_LEN;
-    arp_hdr->ar_pln = 0x04;
+    arp_hdr->ar_hrd = htons(arp_hrd_ethernet);
+    arp_hdr->ar_pro = htons(ethertype_ip);
+    arp_hdr->ar_hln = htons(ETHER_ADDR_LEN);
+    arp_hdr->ar_pln = htons(0x04);
     arp_hdr->ar_op = arp_op;
 
-    memcpy(arp_hdr->ar_sha, arp_sha, ETHER_ADDR_LEN); /* Set to recieving interface's addr */
-    arp_hdr->ar_sip = arp_sip; /* TODO: Reply: Set to recieving interface's ip, Request: set to current arpreq’s first packet’s interface’s ip */
+    memcpy(arp_hdr->ar_sha, arp_sha, ETHER_ADDR_LEN);
+    arp_hdr->ar_sip = arp_sip; 
 
     memcpy(arp_hdr->ar_tha, arp_tha, ETHER_ADDR_LEN);
     arp_hdr->ar_tip = arp_tip;
 }
 
-/* Create a complete ICMP packet (ethernet, ip, icmp). Uses values as-is, does not change byte order*/
+/* Create a complete ICMP packet (ethernet, ip, icmp). Give most arguments in Network-Byte-Order. */
 void create_icmp_packet(struct sr_instance *sr, 
-    sr_ethernet_hdr_t* buf, 
-    uint16_t len, 
-    char* ether_dhost, 
-    uint16_t ip_id, 
-    uint32_t ip_dest,
-    uint8_t icmp_type, 
-    uint8_t icmp_code) 
+    sr_ethernet_hdr_t* buf, /* Buffer to be overwritten with complete packet */
+    uint16_t len, /* Length of entire buffer, give in host-byte order */
+    char* ether_dhost, /* set to original packet’s ether_shost */
+    char* ether_shost, /* set to outgoing interface’s addr */
+    uint32_t ip_src, /* set to ip of our interface or outgoing interface based on whether the original packet was destined for us or not */
+    uint32_t ip_dst, /* set to original packet’s ip_src */
+    uint8_t icmp_type, /* ICMP type */
+    uint8_t icmp_code, /* ICMP code*/
+    uint8_t* icmp_data /* Optional. Null if echo reply, else original packet ip header */
+    ) 
 {
     /* Validate Buffer */
     assert(len >= sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t));
@@ -181,21 +184,30 @@ void create_icmp_packet(struct sr_instance *sr,
 
     // Ethernet
     memcpy(ethernet_hdr->ether_dhost, ether_dhost, ETHER_ADDR_LEN);
-    memcpy(ethernet_hdr->ether_shost, this_router_mac_addr, ETHER_ADDR_LEN);
-    ethernet_hdr->ether_type = ethertype_ip;
+    memcpy(ethernet_hdr->ether_shost, ether_shost, ETHER_ADDR_LEN);
+    ethernet_hdr->ether_type = htons(ethertype_ip);
 
     // IP
-    ip_hdr->ip_len = len - sizeof(sr_ethernet_hdr_t);
-    ip_hdr->ip_id = ip_id;
-    ip_hdr->ip_ttl = 64;
-    ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
-    ip_hdr->ip_src = this_router_ip;
-    ip_hdr->ip_dst = ip_dest;
+    ip_hdr->ip_len = htons(len - sizeof(sr_ethernet_hdr_t));
+    if (ntohs(icmp_type) == 0) {
+        ip_hdr->ip_off = 0x0000; // Don't set for echo replies
+    } else {
+        ip_hdr->ip_off = htons(IP_DF);
+    }
+    ip_hdr->ip_ttl = htons(64);
+    ip_hdr->ip_p = htons(ip_protocol_icmp);
+    ip_hdr->ip_src = ip_src;
+    ip_hdr->ip_dst = ip_dst;
+    ip_hdr->ip_sum = htons(cksum(ip_hdr, sizeof(sr_ip_hdr_t)));
     
     // ICMP
     icmp_hdr->icmp_type = icmp_type;
     icmp_hdr->icmp_code = icmp_code;
-    icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(sr_icmp_t3_hdr_t)); // TODO: this appears to be incorrect given Piazza posts
+    icmp_hdr->icmp_sum = htons(cksum(icmp_hdr, sizeof(icmp_hdr->icmp_type) + sizeof(icmp_hdr->icmp_code)));
+    if (!(ntohs(icmp_type) == 0)) {
+        assert(icmp_data); // Required for packets which are not echo reply
+        memcpy(icmp_hdr->data, icmp_data, ICMP_DATA_SIZE); 
+    }
 }
 
 /* You should not need to touch the rest of this code. */

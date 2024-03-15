@@ -112,57 +112,48 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
     }
 
     /* Send ICMP type 3, code 0 (dest net unreachable) */
-    if (ip_hdr->ip_dst not in known hosts)
+    if (!_is_known_host(sr, ip_hdr->ip_dst))
     {
+        struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
+        assert(interface);
+
         uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)];
-        // create_icmp_packet(sr,
-        //                 outgoing,
-        //                 len,
-        //                 ether_hdr->ether_shost,
-        //                 ip_hdr->ip_id,
-        //                 ip_hdr->ip_src,
-        //                 0x03,
-        //                 0x00
-        // ); TODO
-
-        // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
-        char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, ether_hdr->ether_dhost);
-
         create_icmp_packet(sr,
             icmp_reply,
             sizeof(icmp_reply),
-            ether_dhost = ether_hdr->ether_shost,
-            ether_shost = interface->addr,
-            ip_src = ip_hdr->ip_dst, /* TODO: What? set to ip of our interface or outgoing interface based on whether the original packet was destined for us or not */
-            ip_dst = ip_hdr->ip_src,
-            icmp_type = 0x03,
-            icmp_code = 0x00,
-            icmp_data = ip_hdr
-        )
+            ether_hdr->ether_shost,
+            interface->addr, /* TODO: If interface stores in host-byte, use hton? */
+            interface->ip, /* TODO: Made my best guess here, TODO: If interfaces store in host-byte, convert to network */
+            ip_hdr->ip_src,
+            0x03,
+            0x00,
+            ip_hdr
+        );
 
-        sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface);
+        sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface->name);
         return;
     }
 
     /* Interfaces don't support TCP/UDP, return ICMP type 3, code 3 (port unreachable)*/
     if (ip_protocol(ip_hdr) == 0x06 || ip_protocol(ip_hdr) == 0x11) {
         if (_in_interfaces(sr, ip_hdr->ip_dst)) {
-            
-            const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
-            uint8_t outgoing[len];
-            // create_icmp_packet(sr,
-            //                 outgoing,
-            //                 len,
-            //                 ether_hdr->ether_shost,
-            //                 ip_hdr->ip_id,
-            //                 ip_hdr->ip_src,
-            //                 0x03,
-            //                 0x03
-            // ); TODO
+            struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
+            assert(interface);
 
-            // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
-            char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, ether_hdr->ether_shost);
-            sr_send_packet(sr, outgoing, len, interface); 
+            uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)];
+            create_icmp_packet(sr,
+                icmp_reply,
+                sizeof(icmp_reply),
+                ether_hdr->ether_shost,
+                interface->addr, /* TODO: If interface stores in host-byte, use hton? */
+                interface->ip, /* TODO: Made my best guess here, TODO: If interfaces store in host-byte, convert to network */
+                ip_hdr->ip_src,
+                0x03,
+                0x03,
+                ip_hdr
+            );
+            sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface->name);
+            return;
         }
     }
 
@@ -177,74 +168,72 @@ void _sr_handle_ip_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr, 
             return;
         }
         sr_icmp_hdr_t *icmp_header = ip_hdr + sizeof(sr_ip_hdr_t);
-        if (cksum(icmp_header, sizeof(sr_icmp_hdr_t)) != ntohl(icmp_header->icmp_sum))
+        if (cksum(icmp_header, sizeof(sr_icmp_hdr_t)) != ntohs(icmp_header->icmp_sum))
         {
             fprintf(stderr, "Failed to handle ICMP packet, invalid checksum\n");
             return;
         }
 
         /* If the packet is ICMP Echo Request (type 8) for our interfaces, we reply with echo */
-        if (!_in_interfaces(sr, ip_hdr->ip_dst) && icmp_header->icmp_code == 0x08) 
+        if (_in_interfaces(sr, ip_hdr->ip_dst) && icmp_header->icmp_code == 0x08) 
         {
-            const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
-            uint8_t outgoing[len];
-            // create_icmp_packet(sr,
-            //                 outgoing,
-            //                 len,
-            //                 ether_hdr->ether_shost,
-            //                 ip_hdr->ip_id,
-            //                 ip_hdr->ip_src,
-            //                 0x00,
-            //                 0x00
-            // ); TODO
+            struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
+            assert(interface);
 
-            // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
-            char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, ether_hdr->ether_shost);
-            sr_send_packet(sr, outgoing, len, interface);
+            uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)];
+            create_icmp_packet(sr,
+                icmp_reply,
+                sizeof(icmp_reply),
+                ether_hdr->ether_shost,
+                interface->addr, /* TODO: If interface stores in host-byte, use hton? */
+                interface->ip, /* TODO: Made my best guess here, TODO: If interfaces store in host-byte, convert to network */
+                ip_hdr->ip_src,
+                0x00,
+                0x00,
+                NULL
+            );
+            sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface->name);
         }
     }
 
-    /* Forward all other IP packets unles they're expired */
+    /* Forward all other IP packets unless they're expired */
     ip_hdr->ip_ttl -= hston(ntohs(ip_hdr->ip_ttl) - 1);
     if (ntohs(ip_hdr->ip_ttl) == 0) {
-        const uint16_t len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t);
-        uint8_t outgoing[len];
-        // create_icmp_packet(sr,
-        //                 outgoing,
-        //                 len,
-        //                 ether_hdr->ether_shost,
-        //                 ip_hdr->ip_id,
-        //                 ip_hdr->ip_src,
-        //                 0x11,
-        //                 0x00
-        // ); TODO
+        struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
+        assert(interface);
 
-        // TODO: Is it OK to get the interface via MAC address, or should I do it via IP?
-        char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, ether_hdr->ether_shost);
-        sr_send_packet(sr, outgoing, len, interface);
+        uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)];
+        create_icmp_packet(sr,
+                icmp_reply,
+                sizeof(icmp_reply),
+                ether_hdr->ether_shost,
+                interface->addr, /* TODO: If interface stores in host-byte, use hton? */
+                interface->ip, /* TODO: Made my best guess here, TODO: If interfaces store in host-byte, convert to network */
+                ip_hdr->ip_src,
+                11,
+                0,
+                ip_hdr
+            );
+        sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface->name);
     }
     ip_hdr->ip_sum = hston(cksum(ip_hdr, sizeof(sr_ip_hdr_t)));
 
-    // TODO: We need to search for longest prefix before forwarding?
-
     /* We can send if already in ARP cache, else queue for sending */
-    struct sr_arpentry* arp_entry = sr_arpcache_lookup(&(sr->cache), ip_hdr->ip_dst);
+    uint32_t longest_prefix = _find_longest_prefix(sr, ip_hdr->ip_dst);
+    struct sr_if* interface = get_interface_from_ip(sr, ntohl(longest_prefix));
+
+    struct sr_arpentry* arp_entry = sr_arpcache_lookup(&(sr->cache), longest_prefix);
     if (arp_entry) {
         memcpy(ether_hdr->ether_dhost, arp_entry->mac, ETHER_ADDR_LEN);
-        memcpy(ether_hdr->ether_shost, this_router_mac, ETHER_ADDR_LEN);
-
-        // TODO: how do I use the interface?
-        char interface[sr_IFACE_NAMELEN] = get_interface_from_eth(sr, arp_entry->mac);
-        sr_send_packet(sr, ether_hdr, len, interface);
+        memcpy(ether_hdr->ether_shost, interface->addr, ETHER_ADDR_LEN); // TODO: If interface stores in host-order, change this
+        sr_send_packet(sr, ether_hdr, len, interface->name);
     } else {
-        // TODO: how do I use the interface?
-        char interface[sr_IFACE_NAMELEN] = get_interface_from_ip(sr, ip_hdr->ip_dst);
         sr_arpcache_queuereq(
             &(sr->cache),
             ip_hdr->ip_dst,
             ether_hdr,
             len,
-            interface
+            interface->name
         );
     }
 }
@@ -258,47 +247,79 @@ void _sr_handle_arp_packet(struct sr_instance *sr, sr_ethernet_hdr_t *ether_hdr,
     }
     sr_arp_hdr_t *arp_hdr = ether_hdr + sizeof(sr_ethernet_hdr_t);
 
-    // We ignore packets not targeted at this router
-    // TODO: Check out sr_arp_req_not_for_us()
+    /* Ignore ARP packets not targeted at this router */
     if (!_in_interfaces(sr, arp_hdr->ar_tip))
     {
         return;
     }
 
-    /* We were the target, so we reply to ARP request */
+    /* Cache ARP reply, sweepreqs will handle queued msgs on next run */
+    if (ntohs(arp_hdr->ar_pro) == arp_op_reply)
+    {
+        sr_arpcache_insert(&(sr->cache), arp_hdr->ar_sha, arp_hdr->ar_sip);
+        return;
+    }
+
+    /* We were the target, so we reply to ARP request. Send back to same device */
     if (ntohs(arp_hdr->ar_pro) == arp_op_request)
     {
-        /* We need to find the receiving interface */
-        // TODO: how?
-        struct sr_if* interface = get_interface_from_ip(sr, arp_hdr->ar_tip);
-        
+        struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
+        assert(interface);
+
         uint8_t arp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)];
         create_arp_packet(
             sr,
             arp_reply,
             sizeof(arp_reply),
             ether_hdr->ether_shost,
-            ether_shost = /* set to receiving interface’s addr */
+            interface->addr, // TODO: Are interfaces storing in host-order? If so, change
             hston(arp_op_reply),
-            arp_sha = /* set to receiving interface’s addr */
-            arp_sip = /* set to receiving interface’s addr */
+            interface->addr, // TODO: Are interfaces storing in host-order? If so, change
+            interface->ip, // TODO: Are interfaces storing in host-order? If so, change
             ether_hdr->ether_shost,
             arp_hdr->ar_sip
         );
 
-        sr_send_packet(sr, arp_reply, sizeof(arp_reply), interface);
-        return;
-    }
-
-    if (ntohs(arp_hdr->ar_pro) == arp_op_reply)
-    {
-        // Cache ARP reply, sweepreqs will handle queued msgs on next run
-        sr_arpcache_insert(&(sr->cache), arp_hdr->ar_sha, arp_hdr->ar_sip);
+        sr_send_packet(sr, arp_reply, sizeof(arp_reply), interface->name);
         return;
     }
 }
 
-/* Check if the IP is in this router's interfaces. Does not convert bytes orders */
+/* Check if the IP is in this router's known hosts (including interfaces). Provide in network-byte order */
+int _is_known_host(struct sr_instance *sr, uint32_t packet_ip) {
+    packet_ip = ntohl(packet_ip);
+    
+    for (struct sr_rt* route = sr->routing_table; route != NULL; route = route->next) {
+        uint32_t masked_packet_ip = packet_ip & (route->mask.s_addr);
+        if (route->dest.s_addr == masked_packet_ip) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Check if the IP is in this router's known hosts (including interfaces). Provide in network byte order 
+    Returns 0 if no destination IP matches. */
+uint32_t _find_longest_prefix(struct sr_instance *sr, uint32_t packet_ip) {
+    packet_ip = ntohl(packet_ip);
+    uint32_t longest_prefix = 0;
+    uint32_t largest_mask = 0;
+    
+    for (struct sr_rt* route = sr->routing_table; route != NULL; route = route->next) {
+        uint32_t masked_packet_ip = packet_ip & (route->mask.s_addr);
+
+        /* The masked IP must match the destination and have longest mask */
+        if (route->dest.s_addr == masked_packet_ip) {
+            if (route->mask.s_addr > largest_mask) {
+                largest_mask = route->mask.s_addr;
+                longest_prefix = route->dest.s_addr;
+            }
+        }
+    }
+    return longest_prefix;
+}
+
+/* Check if the IP is in this router's interfaces. Provide in network byte order */
 int _in_interfaces(struct sr_instance *sr, const uint32_t ip) {
     struct sr_if* interface = get_interface_from_ip(sr, ip);
     if (interface) {

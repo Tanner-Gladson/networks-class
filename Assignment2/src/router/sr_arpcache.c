@@ -204,7 +204,7 @@ void create_icmp_packet(struct sr_instance *sr,
     icmp_hdr->icmp_type = icmp_type;
     icmp_hdr->icmp_code = icmp_code;
     icmp_hdr->icmp_sum = htons(cksum(icmp_hdr, sizeof(icmp_hdr->icmp_type) + sizeof(icmp_hdr->icmp_code)));
-    if (!(ntohs(icmp_type) == 0)) {
+    if (icmp_type != 0) {
         assert(icmp_data); // Required for packets which are not echo reply
         memcpy(icmp_hdr->data, icmp_data, ICMP_DATA_SIZE); 
     }

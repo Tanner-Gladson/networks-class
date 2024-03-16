@@ -78,6 +78,7 @@ void sr_handlepacket(struct sr_instance *sr,
     assert(interface);
 
     printf("*** -> Received packet of length %d \n", len);
+    print_hdrs(packet, len);
 
     if (len < sizeof(sr_ethernet_hdr_t))
     {
@@ -87,10 +88,12 @@ void sr_handlepacket(struct sr_instance *sr,
 
     if (ethertype(packet) == ethertype_ip)
     {
+        printf("Handling IP packet\n");
         _sr_handle_ip_packet(sr, packet, len);
     }
     else
     {
+        printf("Handling ARP packet\n");
         _sr_handle_arp_packet(sr, packet, len);
     }
 }
@@ -115,6 +118,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
     /* Send ICMP type 3, code 0 (dest net unreachable) */
     if (!_is_known_host(sr, ip_hdr->ip_dst))
     {
+        printf("Host not found, dest network unreachable (ICMP type 3, code 0)\n");
         struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
         assert(interface);
 
@@ -137,7 +141,9 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
 
     /* Interfaces don't support TCP/UDP, return ICMP type 3, code 3 (port unreachable)*/
     if (ip_protocol((uint8_t *) ip_hdr) == 0x06 || ip_protocol((uint8_t *) ip_hdr) == 0x11) {
+        printf("Detected TCP or UDP packet\n");
         if (_in_interfaces(sr, ip_hdr->ip_dst)) {
+            printf("Detected TCP or UDP packet targeted at router, unsupported (ICMP type 3, code 3)\n");
             struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
             assert(interface);
 
@@ -161,6 +167,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
     /* Handle ICMP requests seperately */
     if (ip_protocol((uint8_t *) ip_hdr) == ip_protocol_icmp)
     {
+        printf("Packet is ICMP protocol\n");
         /* Check if valid ICMP header */
         unsigned int icmp_len = len - sizeof(sr_ip_hdr_t);
         if (icmp_len < sizeof(sr_icmp_hdr_t))
@@ -178,6 +185,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
         /* If the packet is ICMP Echo Request (type 8) for our interfaces, we reply with echo */
         if (_in_interfaces(sr, ip_hdr->ip_dst) && icmp_hdr->icmp_code == 0x08) 
         {
+            printf("Echo request recieved, echoing reply (ICMP type 0)\n");
             struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
             assert(interface);
 
@@ -200,6 +208,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
     /* Forward all other IP packets unless they're expired */
     ip_hdr->ip_ttl -= ip_hdr->ip_ttl - 1;
     if (ip_hdr->ip_ttl == 0) {
+        printf("Received IP packet had TTL 1, returning error (ICMP type 11, code 0)");
         struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
         assert(interface);
 
@@ -223,12 +232,20 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
     uint32_t longest_prefix = _find_longest_prefix(sr, ip_hdr->ip_dst);
     struct sr_if* interface = get_interface_from_ip(sr, ntohl(longest_prefix));
 
+    struct in_addr temp = {
+        .s_addr = longest_prefix
+    };
+    printf("Found longest matching prefix of %s", inet_ntoa(temp));
+    printf("With interface %s", interface->name);
+
     struct sr_arpentry* arp_entry = sr_arpcache_lookup(&(sr->cache), longest_prefix);
     if (arp_entry) {
+        printf("Found existing ARP cache entry, forwarding...\n");        
         memcpy(ether_hdr->ether_dhost, arp_entry->mac, ETHER_ADDR_LEN);
         memcpy(ether_hdr->ether_shost, interface->addr, ETHER_ADDR_LEN); // TODO: If interface stores in host-order, change this
         sr_send_packet(sr, (uint8_t*) ether_hdr, len, interface->name);
     } else {
+        printf("Did not find existing ARP cache entry, queueing...\n");
         sr_arpcache_queuereq(
             &(sr->cache),
             ip_hdr->ip_dst,
@@ -252,12 +269,14 @@ void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int le
     /* Ignore ARP packets not targeted at this router */
     if (!_in_interfaces(sr, arp_hdr->ar_tip))
     {
+        printf("Not targeted to this router's interfaces, discarding\n");
         return;
     }
 
     /* Cache ARP reply, sweepreqs will handle queued msgs on next run */
     if (ntohs(arp_hdr->ar_pro) == arp_op_reply)
     {
+        printf("Packet is ARP reply, inserting information into the ARP cache\n");
         sr_arpcache_insert(&(sr->cache), arp_hdr->ar_sha, arp_hdr->ar_sip);
         return;
     }
@@ -265,6 +284,7 @@ void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int le
     /* We were the target, so we reply to ARP request. Send back to same device */
     if (ntohs(arp_hdr->ar_pro) == arp_op_request)
     {
+        printf("Packet is ARP request, sending an ARP reply\n");
         struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
         assert(interface);
 
@@ -285,6 +305,7 @@ void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int le
         sr_send_packet(sr, arp_reply, sizeof(arp_reply), interface->name);
         return;
     }
+    printf("No supported ARP protocol detected. Discarding\n");
 }
 
 /* Check if the IP is in this router's known hosts (including interfaces). Provide in network-byte order */

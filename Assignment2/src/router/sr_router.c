@@ -91,11 +91,12 @@ void sr_handlepacket(struct sr_instance *sr,
         printf("Handling IP packet\n");
         _sr_handle_ip_packet(sr, packet, len);
     }
-    else
-    {
+    else if (ethertype(packet) == ethertype_arp) {
         printf("Handling ARP packet\n");
-        _sr_handle_arp_packet(sr, packet, len);
+        _sr_handle_arp_packet(sr, packet, len, interface);
     }
+
+    printf("Discarding packet, unrecognized ethertype");
 }
 
 void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len)
@@ -109,6 +110,8 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
 
     sr_ethernet_hdr_t* ether_hdr = (sr_ethernet_hdr_t*) buf;
     sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(buf + sizeof(sr_ethernet_hdr_t));
+
+    printf("Checksum of incoming packet: %d", cksum(ip_hdr, sizeof(sr_ip_hdr_t)));
     if (cksum(ip_hdr, sizeof(sr_ip_hdr_t)) != ntohs(ip_hdr->ip_sum))
     {
         fprintf(stderr, "Failed to handle IP packet, invalid checksum\n");
@@ -256,8 +259,12 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
     }
 }
 
-void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len)
+void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len, char *interface_name)
 {
+    assert(interface_name);
+    assert(buf);
+    assert(sr);
+    
     if (len < sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t))
     {
         fprintf(stderr, "Failed to cast ARP header, insufficient length\n");
@@ -282,12 +289,13 @@ void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int le
     }
 
     /* We were the target, so we reply to ARP request. Send back to same device */
-    if (ntohs(arp_hdr->ar_pro) == arp_op_request)
+    if (ntohs(arp_hdr->ar_op) == arp_op_request)
     {
-        printf("Packet is ARP request, sending an ARP reply\n");
-        struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
+        printf("Packet is ARP request, sending an ARP reply to iface %s\n", interface_name);
+        struct sr_if* interface = sr_get_interface(sr, interface_name);
         assert(interface);
 
+        printf("Found interface");
         uint8_t arp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)];
         create_arp_packet(
             sr,
@@ -302,6 +310,7 @@ void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int le
             arp_hdr->ar_sip
         );
 
+        printf("created the ARP reply, attempting to send");
         sr_send_packet(sr, arp_reply, sizeof(arp_reply), interface->name);
         return;
     }

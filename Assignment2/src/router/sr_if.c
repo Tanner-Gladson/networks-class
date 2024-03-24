@@ -37,13 +37,17 @@ struct sr_if* sr_get_interface(struct sr_instance* sr, const char* name)
     struct sr_if* if_walker = 0;
 
     /* -- REQUIRES -- */
+    printf("asserting sr and name");
     assert(name);
     assert(sr);
+    printf("asserted sr and name");
 
     if_walker = sr->if_list;
+    int i= 0;
 
     while(if_walker)
     {
+       printf("Iteration #%d", i++);
        if(!strncmp(if_walker->name,name,sr_IFACE_NAMELEN))
         { return if_walker; }
         if_walker = if_walker->next;

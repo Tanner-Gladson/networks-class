@@ -148,11 +148,13 @@ void create_arp_packet(
     /* Fill out the fields of each header */
 
     // Ethernet
+    printf("filling out ethernet header");
     memcpy(ethernet_hdr->ether_dhost, ether_dhost, ETHER_ADDR_LEN);
     memcpy(ethernet_hdr->ether_shost, ether_shost, ETHER_ADDR_LEN);
     ethernet_hdr->ether_type = htons(ethertype_arp);
 
     // ARP
+    printf("filling out ARP header");
     arp_hdr->ar_hrd = htons(arp_hrd_ethernet);
     arp_hdr->ar_pro = htons(ethertype_ip);
     arp_hdr->ar_hln = ETHER_ADDR_LEN;

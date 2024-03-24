@@ -64,7 +64,7 @@ void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
     char* interface_name = request->packets->iface;
     struct sr_if* interface = sr_get_interface(sr, interface_name);
 
-    uint8_t arp_request[sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)];
+    uint8_t arp_request[sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)] = {0};
     create_arp_packet(
         sr,
         arp_request,
@@ -92,7 +92,7 @@ void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpre
         struct sr_if* interface = get_interface_from_eth(sr, waiting_frame_eth->ether_dhost);
         assert(interface);
 
-        uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)];
+        uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)] = {0};
         create_icmp_packet(sr,
             icmp_reply,
             sizeof(icmp_reply),
@@ -140,7 +140,7 @@ void create_arp_packet(
     ) 
 {
     assert(len >= sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t));
-    memset(&buf, 0, len);
+    memset(buf, 0, len);
 
     sr_ethernet_hdr_t* ethernet_hdr = (sr_ethernet_hdr_t*) buf;
     sr_arp_hdr_t* arp_hdr = (sr_arp_hdr_t*) (buf + sizeof(sr_ethernet_hdr_t));
@@ -148,13 +148,11 @@ void create_arp_packet(
     /* Fill out the fields of each header */
 
     // Ethernet
-    printf("filling out ethernet header");
     memcpy(ethernet_hdr->ether_dhost, ether_dhost, ETHER_ADDR_LEN);
     memcpy(ethernet_hdr->ether_shost, ether_shost, ETHER_ADDR_LEN);
     ethernet_hdr->ether_type = htons(ethertype_arp);
 
     // ARP
-    printf("filling out ARP header");
     arp_hdr->ar_hrd = htons(arp_hrd_ethernet);
     arp_hdr->ar_pro = htons(ethertype_ip);
     arp_hdr->ar_hln = ETHER_ADDR_LEN;
@@ -183,7 +181,7 @@ void create_icmp_packet(struct sr_instance *sr,
 {
     /* Validate Buffer */
     assert(len >= sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t));
-    memset(&buf, 0, len);
+    memset(buf, 0, len);
     sr_ethernet_hdr_t* ethernet_hdr = (sr_ethernet_hdr_t*) buf;
     sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t*) (buf + sizeof(sr_ethernet_hdr_t));
     sr_icmp_t3_hdr_t* icmp_hdr = (sr_icmp_t3_hdr_t*) (buf + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));

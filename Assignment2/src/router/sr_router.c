@@ -125,7 +125,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
         struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
         assert(interface);
 
-        uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)];
+        uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)] = {0};
         create_icmp_packet(sr,
             icmp_reply,
             sizeof(icmp_reply),
@@ -150,7 +150,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
             struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
             assert(interface);
 
-            uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)];
+            uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)] = {0};
             create_icmp_packet(sr,
                 icmp_reply,
                 sizeof(icmp_reply),
@@ -192,7 +192,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
             struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
             assert(interface);
 
-            uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)];
+            uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)] = {0};
             create_icmp_packet(sr,
                 icmp_reply,
                 sizeof(icmp_reply),
@@ -215,7 +215,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
         struct sr_if* interface = get_interface_from_eth(sr, ether_hdr->ether_dhost);
         assert(interface);
 
-        uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)];
+        uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)] = {0};
         create_icmp_packet(sr,
                 icmp_reply,
                 sizeof(icmp_reply),
@@ -292,15 +292,10 @@ void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int le
     if (ntohs(arp_hdr->ar_op) == arp_op_request)
     {
         printf("Packet is ARP request, sending an ARP reply to iface %s\n", interface_name);
-        printf("Printing if list\n");
-        sr_print_if_list(sr);
-        printf("Getting interface\n");
         struct sr_if* interface = sr_get_interface(sr, interface_name);
-        printf("Asserting interface");
         assert(interface);
 
-        printf("Found interface");
-        uint8_t arp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)];
+        uint8_t arp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t)] = {0};
         create_arp_packet(
             sr,
             arp_reply,
@@ -314,7 +309,7 @@ void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int le
             arp_hdr->ar_sip
         );
 
-        printf("created the ARP reply, attempting to send");
+        printf("created the ARP reply, attempting to send\n");
         sr_send_packet(sr, arp_reply, sizeof(arp_reply), interface->name);
         return;
     }

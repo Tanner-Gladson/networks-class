@@ -259,7 +259,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
     }
 }
 
-void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len, char *interface_name)
+void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len, const char *interface_name)
 {
     assert(interface_name);
     assert(buf);
@@ -273,7 +273,7 @@ void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int le
     sr_ethernet_hdr_t* ether_hdr = (sr_ethernet_hdr_t*) buf;
     sr_arp_hdr_t *arp_hdr = (sr_arp_hdr_t *) (buf + sizeof(sr_ethernet_hdr_t));
 
-    /* Ignore ARP packets not targeted at this router */
+    /* Ignore ARP packets not targeted at this router TODO:  */
     if (!_in_interfaces(sr, arp_hdr->ar_tip))
     {
         printf("Not targeted to this router's interfaces, discarding\n");
@@ -292,7 +292,11 @@ void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int le
     if (ntohs(arp_hdr->ar_op) == arp_op_request)
     {
         printf("Packet is ARP request, sending an ARP reply to iface %s\n", interface_name);
+        printf("Printing if list\n");
+        sr_print_if_list(sr);
+        printf("Getting interface\n");
         struct sr_if* interface = sr_get_interface(sr, interface_name);
+        printf("Asserting interface");
         assert(interface);
 
         printf("Found interface");

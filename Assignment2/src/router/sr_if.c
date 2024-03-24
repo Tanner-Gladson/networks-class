@@ -34,6 +34,7 @@
 
 struct sr_if* sr_get_interface(struct sr_instance* sr, const char* name)
 {
+    printf("begginging of functio");
     struct sr_if* if_walker = 0;
 
     /* -- REQUIRES -- */
@@ -216,7 +217,6 @@ void sr_print_if_list(struct sr_instance* sr)
 
     if(sr->if_list == 0)
     {
-        printf(" Interface list empty \n");
         return;
     }
 

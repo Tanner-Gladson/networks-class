@@ -21,6 +21,7 @@
 void sr_arpcache_sweepreqs(struct sr_instance *sr) {
     struct sr_arpreq* req = sr->cache.requests;
     while (req != NULL) {
+        printf("Attempting to generate ARP request\n");
         struct sr_arpreq* next_req = req->next;
         handle_arpreq(sr, req);
         req = next_req;
@@ -33,6 +34,7 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq *request) {
     struct sr_arpentry* entry = sr_arpcache_lookup(&(sr->cache), request->ip);
     if (entry) {
         // The cache has the IP, so we can send all of the packets waiting on it
+        printf("ARP cache entry found, sending the packets queued for this ARP entry");
         _send_queued_ip_packets(sr, request, entry);
         sr_arpreq_destroy(&(sr->cache), request);
         return;
@@ -40,7 +42,7 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq *request) {
 
 
     time_t curtime = time(NULL);
-    if (difftime(curtime, request->sent) < 1.0) {
+    if (difftime(curtime, request->sent) > 1.0) {
         if (request->times_sent >= 5) {
             // Host cannot be reached
             _send_unreachable_to_queued_packets(sr, request);
@@ -59,6 +61,7 @@ void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
     if (request->packets == NULL) {
         return; // No queued packets
     }
+    printf("Creating ARP request\n");
     
     unsigned char broadcast_addr[ETHER_ADDR_LEN] = {255};
     char* interface_name = request->packets->iface;
@@ -79,12 +82,16 @@ void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
     );
 
     /* TODO: Do I send out all the interfaces? */
+    printf("Sending packet: \n");
+    print_hdrs(arp_request, sizeof(arp_request));
     sr_send_packet(sr, arp_request, sizeof(arp_request), interface_name);
 }
 
 void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpreq *request) {
     // Send ICMP type 3, code 1 (dest host unreachable) to the senders of each waiting packet
     for (struct sr_packet* packet = request->packets; packet != NULL; packet = packet->next) {
+        printf("Creating ICMP response indicating host was unreachable\n");
+        
         // Extract the waiting frame
         sr_ethernet_hdr_t* waiting_frame_eth = (sr_ethernet_hdr_t*) (packet->buf);
         sr_ip_hdr_t* waiting_frame_ip = (sr_ip_hdr_t*) (packet->buf + sizeof(sr_ethernet_hdr_t));
@@ -105,6 +112,8 @@ void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpre
             waiting_frame_ip
         );
 
+        printf("Sending packet: \n");
+        print_hdrs(icmp_reply, sizeof(icmp_reply));
         sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface->name);
     }
 }
@@ -204,12 +213,12 @@ void create_icmp_packet(struct sr_instance *sr,
     ip_hdr->ip_p = ip_protocol_icmp;
     ip_hdr->ip_src = ip_src;
     ip_hdr->ip_dst = ip_dst;
-    ip_hdr->ip_sum = htons(cksum(ip_hdr, sizeof(sr_ip_hdr_t)));
+    ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
     
     // ICMP
     icmp_hdr->icmp_type = icmp_type;
     icmp_hdr->icmp_code = icmp_code;
-    icmp_hdr->icmp_sum = htons(cksum(icmp_hdr, sizeof(icmp_hdr->icmp_type) + sizeof(icmp_hdr->icmp_code)));
+    icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(icmp_hdr->icmp_type) + sizeof(icmp_hdr->icmp_code));
     if (icmp_type != 0) {
         assert(icmp_data); // Required for packets which are not echo reply
         memcpy(icmp_hdr->data, icmp_data, ICMP_DATA_SIZE); 

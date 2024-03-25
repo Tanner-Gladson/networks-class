@@ -66,10 +66,10 @@ void sr_init(struct sr_instance* );
 void sr_handlepacket(struct sr_instance* , uint8_t * , unsigned int , char* );
 
 /* Add additional helper method declarations here! */
-void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *ether_hdr, unsigned int len);
+void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *ether_hdr, unsigned int len, const char* interface_name);
 void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *ether_hdr, unsigned int len, const char *interface);
 int _is_known_host(struct sr_instance *sr, uint32_t packet_ip);
-uint32_t _find_longest_prefix(struct sr_instance *sr, uint32_t packet_ip);
+uint32_t _find_longest_prefix(struct sr_instance *sr, uint32_t packet_ip, char* interface_name);
 int _in_interfaces(struct sr_instance *sr, const uint32_t ip);
 
 /* -- sr_if.c -- */

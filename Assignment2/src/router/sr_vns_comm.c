@@ -589,22 +589,25 @@ int sr_send_packet(struct sr_instance* sr /* borrowed */,
             buf,len);
 
     /* -- log packet -- */
+    printf("Setp 1\n");
     sr_log_packet(sr,buf,len);
 
+    printf("Setp 2\n");
     if ( ! sr_ether_addrs_match_interface( sr, buf, iface) ){
         fprintf( stderr, "*** Error: problem with ethernet header, check log\n");
         free ( sr_pkt );
         return -1;
     }
 
+    printf("Setp 3\n");
     if( write(sr->sockfd, sr_pkt, total_len) < total_len ){
         fprintf(stderr, "Error writing packet\n");
         free(sr_pkt);
         return -1;
     }
-
+    printf("Freeing all...\n");
     free(sr_pkt);
-
+    printf("freed!\n");
     return 0;
 } /* -- sr_send_packet -- */
 

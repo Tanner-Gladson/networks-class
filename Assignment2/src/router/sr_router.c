@@ -153,24 +153,27 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
             struct sr_if* interface = sr_get_interface(sr, interface_name);
             assert(interface);
 
-            // TODO: check if this length is correct
-            uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)] = {0};
-            memset(icmp_reply, 0, sizeof(icmp_reply));
+            // TODO: stack smashing is occuring somewhere in here?
+            unsigned int icmp_len = sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr) + sizeof(struct sr_icmp_hdr);
+            uint8_t icmp_reply[icmp_len];
+            memset(icmp_reply, 0, icmp_len);
             memcpy(icmp_reply + sizeof(sr_ethernet_hdr_t), ip_hdr, sizeof(sr_ip_hdr_t));
             create_icmp_packet(sr,
                 icmp_reply,
-                sizeof(icmp_reply),
+                icmp_len,
                 ether_hdr->ether_shost,
-                interface->addr, /* TODO: If interface stores in host-byte, use hton? */
-                interface->ip, /* TODO: If interfaces store in host-byte, convert to network */
+                interface->addr,
+                interface->ip,
                 ip_hdr->ip_src,
                 0x03,
                 0x03,
                 ip_hdr
             );
             printf("Sending reply: \n");
-            print_hdrs(icmp_reply, sizeof(icmp_reply));
-            sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface->name);
+            print_hdrs(icmp_reply, icmp_len);
+            sr_send_packet(sr, icmp_reply, icmp_len, interface->name);
+            printf("Successfully returned\n");
+            // END TODO
             return;
         }
 
@@ -188,12 +191,12 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
             sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t*) (buf + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
             
             // TODO: fix checksum
-            printf("Calculated Checksum: %d\n", (uint16_t) cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)));
-            if (cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)) != 0xFFFF) // Or, try just 0
-            {
-                fprintf(stderr, "Failed to handle ICMP packet, invalid ICMP checksum\n");
-                return;
-            }
+            // printf("Calculated Checksum: %d\n", (uint16_t) cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)));
+            // if (cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)) != 0xFFFF) // Or, try just 0
+            // {
+            //     fprintf(stderr, "Failed to handle ICMP packet, invalid ICMP checksum\n");
+            //     return;
+            // }
 
             /* If the packet is ICMP Echo Request (type 8) for our interfaces, we reply with echo */
             if (icmp_hdr->icmp_type == 0x08) 

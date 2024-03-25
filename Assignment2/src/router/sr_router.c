@@ -112,14 +112,11 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
     sr_ethernet_hdr_t* ether_hdr = (sr_ethernet_hdr_t*) buf;
     sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(buf + sizeof(sr_ethernet_hdr_t));
 
-    // TODO: Cksum() is always returning 1's ?
-    // printf("Provided checksum of incoming packet: %d\n", ip_hdr->ip_sum);
-    // printf("Calculated checksum of incoming packet: %d\n", cksum(ip_hdr, sizeof(sr_ip_hdr_t)));
-    // if (cksum(ip_hdr, sizeof(sr_ip_hdr_t)) != ip_hdr->ip_sum)
-    // {
-    //     fprintf(stderr, "Failed to handle IP packet, invalid checksum\n");
-    //     return;
-    // }
+    if (cksum(ip_hdr, sizeof(sr_ip_hdr_t)) != 0xFFFF)
+    {
+        fprintf(stderr, "Failed to handle IP packet, invalid checksum\n");
+        return;
+    }
 
     /* Do not process expired IP packets */
     ip_hdr->ip_ttl = ip_hdr->ip_ttl - 1;
@@ -129,6 +126,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
         assert(interface);
 
         uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)] = {0};
+        memcpy(icmp_reply, buf, len); // Copy in fields
         create_icmp_packet(sr,
                 icmp_reply,
                 sizeof(icmp_reply),
@@ -145,6 +143,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
         sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface->name);
         return;
     }
+    ip_hdr->ip_sum = 0;
     ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
     
     if (_in_interfaces(sr, ip_hdr->ip_dst)) {
@@ -154,7 +153,10 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
             struct sr_if* interface = sr_get_interface(sr, interface_name);
             assert(interface);
 
+            // TODO: check if this length is correct
             uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)] = {0};
+            memset(icmp_reply, 0, sizeof(icmp_reply));
+            memcpy(icmp_reply + sizeof(sr_ethernet_hdr_t), ip_hdr, sizeof(sr_ip_hdr_t));
             create_icmp_packet(sr,
                 icmp_reply,
                 sizeof(icmp_reply),
@@ -177,7 +179,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
         {
             printf("Packet is ICMP protocol\n");
             /* Check if valid ICMP header */
-            unsigned int icmp_len = len - sizeof(sr_ip_hdr_t);
+            unsigned int icmp_len = len - sizeof(sr_ip_hdr_t) - sizeof(sr_ethernet_hdr_t);
             if (icmp_len < sizeof(sr_icmp_hdr_t))
             {
                 fprintf(stderr, "Failed to cast ICMP header, insufficient length\n");
@@ -185,12 +187,13 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
             }
             sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t*) (buf + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
             
-            // TODO: Checksum broken?
-            // if (cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)) != icmp_hdr->icmp_sum)
-            // {
-            //     fprintf(stderr, "Failed to handle ICMP packet, invalid checksum\n");
-            //     return;
-            // }
+            // TODO: fix checksum
+            printf("Calculated Checksum: %d\n", (uint16_t) cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)));
+            if (cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)) != 0xFFFF) // Or, try just 0
+            {
+                fprintf(stderr, "Failed to handle ICMP packet, invalid ICMP checksum\n");
+                return;
+            }
 
             /* If the packet is ICMP Echo Request (type 8) for our interfaces, we reply with echo */
             if (icmp_hdr->icmp_type == 0x08) 
@@ -199,13 +202,14 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
                 struct sr_if* interface = sr_get_interface(sr, interface_name);
                 assert(interface);
 
-                uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)] = {0};
+                uint8_t icmp_reply[len];
+                memcpy(icmp_reply, buf, len);
                 create_icmp_packet(sr,
                     icmp_reply,
                     sizeof(icmp_reply),
                     ether_hdr->ether_shost,
-                    interface->addr, /* TODO: If interface stores in host-byte, use hton? */
-                    interface->ip, /* TODO: If interfaces store in host-byte, convert to network */
+                    interface->addr,
+                    interface->ip, 
                     ip_hdr->ip_src,
                     0x00,
                     0x00,
@@ -213,9 +217,11 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
                 );
                 printf("Sending reply: \n");
                 print_hdrs(icmp_reply, sizeof(icmp_reply));
+                printf("yeah, it's created\n");
                 sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface->name);
-                return;
+                printf("we've queued for sending\n");
             }
+            return;
         }
     }
 
@@ -227,12 +233,14 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
         assert(interface);
 
         uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)] = {0};
+        memset(icmp_reply, 0, sizeof(icmp_reply));
+        memcpy(icmp_reply + sizeof(sr_ethernet_hdr_t), ip_hdr, sizeof(sr_ip_hdr_t));
         create_icmp_packet(sr,
             icmp_reply,
             sizeof(icmp_reply),
             ether_hdr->ether_shost,
-            interface->addr, /* TODO: If interface stores in host-byte, use hton? */
-            interface->ip, /* TODO: If interfaces store in host-byte, convert to network */
+            interface->addr,
+            interface->ip,
             ip_hdr->ip_src,
             0x03,
             0x00,
@@ -303,7 +311,12 @@ void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int le
     if (ntohs(arp_hdr->ar_op) == arp_op_reply)
     {
         printf("Packet is ARP reply, inserting information into the ARP cache\n");
-        sr_arpcache_insert(&(sr->cache), arp_hdr->ar_sha, arp_hdr->ar_sip);
+        struct sr_arpreq* request = sr_arpcache_insert(&(sr->cache), arp_hdr->ar_sha, arp_hdr->ar_sip);
+        printf("ARP cache entry created, forwarding IP packets");
+        if (request) {
+            _send_queued_ip_packets(sr, request, arp_hdr->ar_sha);
+            sr_arpreq_destroy(&(sr->cache), request);
+        }
         return;
     }
 

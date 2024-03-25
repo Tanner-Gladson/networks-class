@@ -19,6 +19,7 @@
   See the comments in the header file for an idea of what it should look like.
 */
 void sr_arpcache_sweepreqs(struct sr_instance *sr) {
+    
     struct sr_arpreq* req = sr->cache.requests;
     while (req != NULL) {
         printf("Attempting to generate ARP request\n");
@@ -29,18 +30,6 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
 }
 
 void handle_arpreq(struct sr_instance *sr, struct sr_arpreq *request) {
-
-    // If the cache still doesn't have IP, we need to re-send
-    struct sr_arpentry* entry = sr_arpcache_lookup(&(sr->cache), request->ip);
-    if (entry) {
-        // The cache has the IP, so we can send all of the packets waiting on it
-        printf("ARP cache entry found, sending the packets queued for this ARP entry");
-        _send_queued_ip_packets(sr, request, entry);
-        sr_arpreq_destroy(&(sr->cache), request);
-        return;
-    }
-
-
     time_t curtime = time(NULL);
     if (difftime(curtime, request->sent) > 1.0) {
         if (request->times_sent >= 5) {
@@ -63,7 +52,8 @@ void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
     }
     printf("Creating ARP request\n");
     
-    unsigned char broadcast_addr[ETHER_ADDR_LEN] = {255};
+    unsigned char broadcast_addr[ETHER_ADDR_LEN];
+    memset(broadcast_addr, 0xFF, ETHER_ADDR_LEN);
     char* interface_name = request->packets->iface;
     struct sr_if* interface = sr_get_interface(sr, interface_name);
 
@@ -81,7 +71,6 @@ void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
         request->ip
     );
 
-    /* TODO: Do I send out all the interfaces? */
     printf("Sending packet: \n");
     print_hdrs(arp_request, sizeof(arp_request));
     sr_send_packet(sr, arp_request, sizeof(arp_request), interface_name);
@@ -118,14 +107,15 @@ void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpre
     }
 }
 
-void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request, struct sr_arpentry* arp_entry) {
+void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request, const unsigned char* dest_mac) {
+    
     for (struct sr_packet* packet = request->packets; packet != NULL; packet = packet->next) {
         
         /* Each packet processed seperately */
         sr_ethernet_hdr_t* frame = (sr_ethernet_hdr_t*) packet->buf;
-        struct sr_if* interface = sr_get_interface(sr, packet->iface);
+        struct sr_if* interface = sr_get_interface(sr, packet->iface); // TODO: Is this using the next-hop interface?
 
-        memcpy(frame->ether_dhost, arp_entry->mac, ETHER_ADDR_LEN);
+        memcpy(frame->ether_dhost, dest_mac, ETHER_ADDR_LEN);
         memcpy(frame->ether_shost, interface->addr, ETHER_ADDR_LEN);
         sr_send_packet(sr, (uint8_t *) frame, packet->len, interface->name);
     }
@@ -190,7 +180,6 @@ void create_icmp_packet(struct sr_instance *sr,
 {
     /* Validate Buffer */
     assert(len >= sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t));
-    memset(buf, 0, len);
     sr_ethernet_hdr_t* ethernet_hdr = (sr_ethernet_hdr_t*) buf;
     sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t*) (buf + sizeof(sr_ethernet_hdr_t));
     sr_icmp_t3_hdr_t* icmp_hdr = (sr_icmp_t3_hdr_t*) (buf + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
@@ -203,6 +192,9 @@ void create_icmp_packet(struct sr_instance *sr,
     ethernet_hdr->ether_type = htons(ethertype_ip);
 
     // IP
+
+    // TODO: Set the version, header_length, and version
+
     ip_hdr->ip_len = htons(len - sizeof(sr_ethernet_hdr_t));
     if (ntohs(icmp_type) == 0) {
         ip_hdr->ip_off = 0x0000; // Don't set for echo replies
@@ -213,16 +205,20 @@ void create_icmp_packet(struct sr_instance *sr,
     ip_hdr->ip_p = ip_protocol_icmp;
     ip_hdr->ip_src = ip_src;
     ip_hdr->ip_dst = ip_dst;
+    ip_hdr->ip_sum = 0;
     ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
     
     // ICMP
     icmp_hdr->icmp_type = icmp_type;
     icmp_hdr->icmp_code = icmp_code;
-    icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(icmp_hdr->icmp_type) + sizeof(icmp_hdr->icmp_code));
     if (icmp_type != 0) {
         assert(icmp_data); // Required for packets which are not echo reply
         memcpy(icmp_hdr->data, icmp_data, ICMP_DATA_SIZE); 
+    } else {
+        memset(icmp_hdr->data, 0, ICMP_DATA_SIZE);
     }
+    icmp_hdr->icmp_sum = 0;
+    icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(sr_icmp_hdr_t));
 }
 
 /* You should not need to touch the rest of this code. */

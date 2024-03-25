@@ -97,7 +97,7 @@ void handle_arpreq(struct sr_instance *, struct sr_arpreq *);
 /* Protocol Helper Functions */
 void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request);
 void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpreq *request);
-void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request, struct sr_arpentry *arp_entry);
+void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request, const unsigned char* dest_mac);
 void create_arp_packet(
     struct sr_instance *sr,
     uint8_t *buf, /* Buffer to be filled with packet */

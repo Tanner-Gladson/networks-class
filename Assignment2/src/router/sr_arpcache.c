@@ -88,20 +88,24 @@ void _send_unreachable_to_queued_packets(struct sr_instance *sr, struct sr_arpre
         struct sr_if* interface = get_interface_from_eth(sr, waiting_frame_eth->ether_dhost);
         assert(interface);
 
-        uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)] = {0};
+        unsigned int icmp_len = sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr) + sizeof(struct sr_icmp_hdr);
+        uint8_t icmp_reply[icmp_len];
+        memset(icmp_reply, 0, icmp_len);
+        memcpy(icmp_reply + sizeof(sr_ethernet_hdr_t), waiting_frame_ip, sizeof(sr_ip_hdr_t));
+
         create_icmp_packet(sr,
             icmp_reply,
             sizeof(icmp_reply),
             waiting_frame_eth->ether_shost,
-            interface->addr, /* TODO: If interface stores in host-byte, use hton? */
-            interface->ip, /* TODO: Made my best guess here, TODO: If interfaces store in host-byte, convert to network */
+            interface->addr,
+            interface->ip,
             waiting_frame_ip->ip_src,
             0x03,
             0x01,
             waiting_frame_ip
         );
 
-        printf("Sending packet: \n");
+        printf("Sending packet out interface %s: \n", interface->name);
         print_hdrs(icmp_reply, sizeof(icmp_reply));
         sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface->name);
     }

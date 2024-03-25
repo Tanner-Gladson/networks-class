@@ -90,14 +90,12 @@ void sr_handlepacket(struct sr_instance *sr,
     {
         printf("Handling IP packet\n");
         _sr_handle_ip_packet(sr, packet, len, interface);
-    }
-    else if (ethertype(packet) == ethertype_arp) {
+    } else if (ethertype(packet) == ethertype_arp) {
         printf("Handling ARP packet\n");
         _sr_handle_arp_packet(sr, packet, len, interface);
     } else {
         printf("Discarding packet, unrecognized ethertype\n");
     }
-
 }
 
 void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len, const char* interface_name)
@@ -125,14 +123,17 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
         struct sr_if* interface = sr_get_interface(sr, interface_name);
         assert(interface);
 
-        uint8_t icmp_reply[sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_hdr_t)] = {0};
-        memcpy(icmp_reply, buf, len); // Copy in fields
+        unsigned int icmp_len = sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr) + sizeof(struct sr_icmp_hdr);
+        uint8_t icmp_reply[icmp_len];
+        memset(icmp_reply, 0, icmp_len);
+        memcpy(icmp_reply + sizeof(sr_ethernet_hdr_t), ip_hdr, sizeof(sr_ip_hdr_t));
+
         create_icmp_packet(sr,
                 icmp_reply,
                 sizeof(icmp_reply),
                 ether_hdr->ether_shost,
-                interface->addr, /* TODO: If interface stores in host-byte, use hton? */
-                interface->ip, /* TODO: If interfaces store in host-byte, convert to network */
+                interface->addr,
+                interface->ip,
                 ip_hdr->ip_src,
                 11,
                 0,
@@ -158,6 +159,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
             uint8_t icmp_reply[icmp_len];
             memset(icmp_reply, 0, icmp_len);
             memcpy(icmp_reply + sizeof(sr_ethernet_hdr_t), ip_hdr, sizeof(sr_ip_hdr_t));
+
             create_icmp_packet(sr,
                 icmp_reply,
                 icmp_len,
@@ -169,10 +171,8 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
                 0x03,
                 ip_hdr
             );
-            printf("Sending reply: \n");
             print_hdrs(icmp_reply, icmp_len);
             sr_send_packet(sr, icmp_reply, icmp_len, interface->name);
-            printf("Successfully returned\n");
             // END TODO
             return;
         }
@@ -220,9 +220,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
                 );
                 printf("Sending reply: \n");
                 print_hdrs(icmp_reply, sizeof(icmp_reply));
-                printf("yeah, it's created\n");
                 sr_send_packet(sr, icmp_reply, sizeof(icmp_reply), interface->name);
-                printf("we've queued for sending\n");
             }
             return;
         }

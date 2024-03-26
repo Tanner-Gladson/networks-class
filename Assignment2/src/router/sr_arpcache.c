@@ -117,10 +117,12 @@ void _send_queued_ip_packets(struct sr_instance *sr, struct sr_arpreq *request, 
         
         /* Each packet processed seperately */
         sr_ethernet_hdr_t* frame = (sr_ethernet_hdr_t*) packet->buf;
-        struct sr_if* interface = sr_get_interface(sr, packet->iface); // TODO: Is this using the next-hop interface?
+        struct sr_if* interface = sr_get_interface(sr, packet->iface);
 
         memcpy(frame->ether_dhost, dest_mac, ETHER_ADDR_LEN);
         memcpy(frame->ether_shost, interface->addr, ETHER_ADDR_LEN);
+        printf("Sending IPV4 packet: \n");
+        print_hdrs((uint8_t *) frame, packet->len);
         sr_send_packet(sr, (uint8_t *) frame, packet->len, interface->name);
     }
 }

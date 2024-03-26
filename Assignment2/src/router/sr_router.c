@@ -154,7 +154,6 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
             struct sr_if* interface = sr_get_interface(sr, interface_name);
             assert(interface);
 
-            // TODO: stack smashing is occuring somewhere in here?
             unsigned int icmp_len = sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr) + sizeof(struct sr_icmp_hdr);
             uint8_t icmp_reply[icmp_len];
             memset(icmp_reply, 0, icmp_len);
@@ -173,7 +172,6 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
             );
             print_hdrs(icmp_reply, icmp_len);
             sr_send_packet(sr, icmp_reply, icmp_len, interface->name);
-            // END TODO
             return;
         }
 
@@ -190,13 +188,14 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
             }
             sr_icmp_hdr_t* icmp_hdr = (sr_icmp_hdr_t*) (buf + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
             
-            // TODO: fix checksum
-            // printf("Calculated Checksum: %d\n", (uint16_t) cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)));
-            // if (cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)) != 0xFFFF) // Or, try just 0
-            // {
-            //     fprintf(stderr, "Failed to handle ICMP packet, invalid ICMP checksum\n");
-            //     return;
-            // }
+            // Validate the ICMP checksum
+            printf("Calculated Checksum: %d\n", (uint16_t) cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)));
+            uint16_t sum = cksum(icmp_hdr, sizeof(sr_icmp_hdr_t))|1;
+            if (sum != (uint16_t) 0xFFFF)
+            {
+                fprintf(stderr, "Failed to handle ICMP packet, invalid ICMP checksum\n");
+                return;
+            }
 
             /* If the packet is ICMP Echo Request (type 8) for our interfaces, we reply with echo */
             if (icmp_hdr->icmp_type == 0x08) 
@@ -271,7 +270,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
     if (arp_entry) {
         printf("Found existing ARP cache entry, forwarding...\n");        
         memcpy(ether_hdr->ether_dhost, arp_entry->mac, ETHER_ADDR_LEN);
-        memcpy(ether_hdr->ether_shost, interface->addr, ETHER_ADDR_LEN); // TODO: If interface stores in host-order, change this
+        memcpy(ether_hdr->ether_shost, interface->addr, ETHER_ADDR_LEN);
         sr_send_packet(sr, (uint8_t*) ether_hdr, len, interface->name);
         return;
     } else {
@@ -301,7 +300,7 @@ void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int le
     sr_ethernet_hdr_t* ether_hdr = (sr_ethernet_hdr_t*) buf;
     sr_arp_hdr_t *arp_hdr = (sr_arp_hdr_t *) (buf + sizeof(sr_ethernet_hdr_t));
 
-    /* Ignore ARP packets not targeted at this router TODO:  */
+    /* Ignore ARP packets not targeted at this router */
     if (!_in_interfaces(sr, arp_hdr->ar_tip))
     {
         printf("Not targeted to this router's interfaces, discarding\n");
@@ -334,10 +333,10 @@ void _sr_handle_arp_packet(struct sr_instance *sr, uint8_t *buf, unsigned int le
             arp_reply,
             sizeof(arp_reply),
             ether_hdr->ether_shost,
-            interface->addr, // TODO: Are interfaces storing in host-order? If so, change
+            interface->addr,
             htons(arp_op_reply),
-            interface->addr, // TODO: Are interfaces storing in host-order? If so, change
-            interface->ip, // TODO: Are interfaces storing in host-order? If so, change
+            interface->addr,
+            interface->ip,
             ether_hdr->ether_shost,
             arp_hdr->ar_sip
         );
@@ -362,8 +361,7 @@ int _is_known_host(struct sr_instance *sr, uint32_t packet_ip) {
     return 0;
 }
 
-/* Check if the IP is in this router's known hosts (including interfaces). Provide in network byte order 
-    Returns 0 if no destination IP matches. Fills out the interface_name output-argument */
+/* Find the longest-prefix out of known hosts */
 uint32_t _find_longest_prefix(struct sr_instance *sr, uint32_t packet_ip, char* interface_name) {
     uint32_t longest_prefix = 0;
     uint32_t largest_mask = 0;

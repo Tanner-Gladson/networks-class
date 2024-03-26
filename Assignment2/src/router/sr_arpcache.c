@@ -63,10 +63,10 @@ void _send_arp_request(struct sr_instance *sr, struct sr_arpreq *request) {
         arp_request,
         sizeof(arp_request),
         broadcast_addr,
-        interface->addr, // TODO: Are interfaces storing in host-order? If so, change
+        interface->addr, 
         htons(arp_op_request),
-        interface->addr, // TODO: Are interfaces storing in host-order? If so, change
-        interface->ip, // TODO: Are interfaces storing in host-order? If so, change
+        interface->addr,
+        interface->ip,
         broadcast_addr,
         request->ip
     );

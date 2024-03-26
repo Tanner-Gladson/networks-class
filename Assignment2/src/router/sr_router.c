@@ -190,7 +190,7 @@ void _sr_handle_ip_packet(struct sr_instance *sr, uint8_t *buf, unsigned int len
             
             // Validate the ICMP checksum
             printf("Calculated Checksum: %d\n", (uint16_t) cksum(icmp_hdr, sizeof(sr_icmp_hdr_t)));
-            uint16_t sum = cksum(icmp_hdr, sizeof(sr_icmp_hdr_t))|1;
+            uint16_t sum = cksum(icmp_hdr, sizeof(sr_icmp_hdr_t))|0xFFFF;
             if (sum != (uint16_t) 0xFFFF)
             {
                 fprintf(stderr, "Failed to handle ICMP packet, invalid ICMP checksum\n");

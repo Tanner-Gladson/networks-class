@@ -139,7 +139,7 @@ int send_syn(mysocket_t sd, context_t *ctx) {
 
     // Send over network
     send_STCP_datagram_over_network(sd, &datagram, sizeof(datagram));
-    return -1;
+    return 0;
 }
 
 int wait_and_parse_syn(mysocket_t sd, context_t* ctx) {
@@ -147,11 +147,13 @@ int wait_and_parse_syn(mysocket_t sd, context_t* ctx) {
     read_STCP_datagram_from_network(sd, buffer, sizeof(STCPHeader) + STCP_MSS);
     STCPHeader* datagram = buffer;
 
-    // ... TODO: assert that flags are correct ...
+    if (!(datagram->th_flags & TH_SYN)) {
+        return -1; // Should be a SYN
+    }
 
     ctx->recieving_window_last_received_byte = datagram->th_seq; /*seqx*/
     ctx->sending_window_size = datagram->th_win;
-    return -1;
+    return 0;
 }
 
 int send_syn_ack(mysocket_t sd, context_t* ctx) {
@@ -163,7 +165,7 @@ int send_syn_ack(mysocket_t sd, context_t* ctx) {
 
     // Send over network
     send_STCP_datagram_over_network(sd, &datagram, sizeof(datagram));
-    return -1;
+    return 0;
 }
 
 int wait_and_parse_syn_ack(mysocket_t sd, context_t *ctx) {
@@ -171,12 +173,14 @@ int wait_and_parse_syn_ack(mysocket_t sd, context_t *ctx) {
     read_STCP_datagram_from_network(sd, buffer, sizeof(STCPHeader) + STCP_MSS);
     STCPHeader* datagram = buffer;
 
-    // ... TODO: assert that flags are correct ...
+    if (!(datagram->th_flags & TH_SYN && datagram->th_flags & TH_ACK)) {
+        return -1; // Should be a SYN and ACK
+    }
 
     ctx->sending_window_last_ackd_byte = datagram->th_ack; /*seqx + 1*/
     ctx->recieving_window_last_received_byte = datagram->th_seq; /*seqy*/
     ctx->sending_window_size = datagram->th_win;
-    return -1;
+    return 0;
 }
 
 int send_ack(mysocket_t sd, context_t* ctx) {
@@ -186,7 +190,8 @@ int send_ack(mysocket_t sd, context_t* ctx) {
     datagram.th_win = ctx->recieving_window_size;
     
     // Send over network
-    send_STCP_datagram_over_network(sd, &datagram, sizeof(datagram));    return -1;
+    send_STCP_datagram_over_network(sd, &datagram, sizeof(datagram));
+    return 0;
 }
 
 int wait_and_parse_ack(mysocket_t sd, context_t* ctx) {
@@ -194,11 +199,13 @@ int wait_and_parse_ack(mysocket_t sd, context_t* ctx) {
     read_STCP_datagram_from_network(sd, buffer, sizeof(STCPHeader) + STCP_MSS);
     STCPHeader* datagram = buffer;
 
-    // ... TODO: assert that flags are correct ...
+    if (!(datagram->th_flags & TH_ACK)) {
+        return -1; // Should be an ACK
+    }
 
     ctx->sending_window_last_ackd_byte = datagram->th_ack; /*seqy + 1*/
     ctx->sending_window_size = datagram->th_win;
-    return -1;
+    return 0;
 }
 
 /* Returns size of bytes read (header + payload). Guaruntees valid-length header.

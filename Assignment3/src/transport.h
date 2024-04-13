@@ -41,8 +41,8 @@ typedef uint32_t tcp_seq;
 
 typedef struct tcphdr
 {
-    uint16_t th_sport;  /* source port */
-    uint16_t th_dport;  /* destination port */
+    uint16_t th_sport;  /* source port, handled for me */
+    uint16_t th_dport;  /* destination, handled for me port */
     tcp_seq  th_seq;    /* sequence number */
     tcp_seq  th_ack;    /* acknowledgement number */
 #if __BYTE_ORDER == __LITTLE_ENDIAN
@@ -62,7 +62,7 @@ typedef struct tcphdr
 #define TH_ACK  0x10
 #define TH_URG  0x20    /* ...or this */
     uint16_t th_win;    /* window */
-    uint16_t th_sum;    /* checksum */
+    uint16_t th_sum;    /* checksum, handled for me */
     uint16_t th_urp;    /* urgent pointer (unused in STCP) */
 } __attribute__ ((packed)) STCPHeader;
 

@@ -15,10 +15,13 @@
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <stdint.h> // Do I need this?
 #include "mysock.h"
 #include "stcp_api.h"
 #include "transport.h"
 
+
+static const uint16_t FIXED_WINDOW_SIZE = 3072;
 
 enum { 
     CSTATE_ESTABLISHED
@@ -32,9 +35,17 @@ typedef struct
     bool_t done;    /* TRUE once connection is closed */
 
     int connection_state;   /* state of the connection (established, etc.) */
-    tcp_seq initial_sequence_num;
+    tcp_seq initial_sequence_num; /* Sending window initial sequence number (i think?)*/
 
     /* any other connection-wide global variables go here */
+    uint16_t sending_window_size; /* Update after receiving datagram from peer */
+    tcp_seq sending_window_last_ackd_byte; /* Update after receiving ACK from peer */
+    uint32_t sending_window_num_unacked_bytes; /* Update after sending to peer */
+
+    // TODO: why should I keep track of recieve window again?
+
+    uint16_t recieving_window_size; /* Set during ctx initialization, send to peer with all packets */
+    tcp_seq recieving_window_last_received_byte; /* Update after receiving from peer*/
 } context_t;
 
 
@@ -54,6 +65,7 @@ void transport_init(mysocket_t sd, bool_t is_active)
     assert(ctx);
 
     generate_initial_seq_num(ctx);
+    ctx->recieving_window_size = FIXED_WINDOW_SIZE;
 
     /* XXX: you should send a SYN packet here if is_active, or wait for one
      * to arrive if !is_active.  after the handshake completes, unblock the
@@ -65,18 +77,47 @@ void transport_init(mysocket_t sd, bool_t is_active)
 
     if (is_active) {
         // send syn packet
+        int success = send_syn(sd, ctx);
+        if (success == -1) {
+            errno = EHOSTUNREACH;
+            stcp_unblock_application(sd);
+        }
 
         // wait for syn ack
+        success = wait_and_parse_syn_ack(sd, ctx);
+        if (success == -1) {
+            errno = ETIMEDOUT;
+            stcp_unblock_application(sd);
+        }
 
         // send ack
+        success = send_ack(sd, ctx);
+        if (success == -1) {
+            errno = EHOSTUNREACH;
+            stcp_unblock_application(sd);
+        }
 
     } else {
         // wait for syn
+        int success = wait_and_parse_syn(sd, ctx);
+        if (success == -1) {
+            errno = ETIMEDOUT;
+            stcp_unblock_application(sd);
+        }
 
         // send syn ack
+        success = send_syn_ack(sd, ctx);
+        if (success == -1) {
+            errno = EHOSTUNREACH;
+            stcp_unblock_application(sd);
+        }
 
         // wait for ack
-
+        success = wait_and_parse_ack(sd, ctx);
+        if (success == -1) {
+            errno = EHOSTUNREACH;
+            stcp_unblock_application(sd);
+        }
     }
     ctx->connection_state = CSTATE_ESTABLISHED;
     stcp_unblock_application(sd);
@@ -87,6 +128,64 @@ void transport_init(mysocket_t sd, bool_t is_active)
     free(ctx);
 }
 
+/* Helper Function */
+int send_syn(mysocket_t sd, context_t *ctx) {
+    // Create the packet
+    STCPHeader datagram;
+    datagram.th_seq = ctx->initial_sequence_num; /*seqx*/
+    datagram.th_ack = 0;
+    datagram.th_flags = TH_SYN;
+    datagram.th_win = ctx->recieving_window_size;
+
+    // Send over network
+    stcp_network_send(sd, &datagram, sizeof(datagram), NULL);
+    return -1;
+}
+
+int wait_and_parse_syn(mysocket_t sd, context_t* ctx) {
+    STCPHeader datagram;
+
+    // TODO: ... build the datagram from network data ...
+
+    ctx->sending_window_size = datagram.th_win; /* How much peer can recieve */
+    ctx->recieving_window_last_received_byte = datagram.th_seq; /*seqx*/
+    return -1;
+}
+
+
+int send_syn_ack(mysocket_t sd, context_t* ctx) {
+    STCPHeader datagram;
+    datagram.th_seq = ctx->initial_sequence_num; /*seqy*/
+    datagram.th_ack = ctx->recieving_window_last_received_byte + 1; /*seqx + 1*/
+    datagram.th_flags = TH_SYN | TH_ACK;
+    datagram.th_win = ctx->recieving_window_size;
+
+    // Send over network
+    stcp_network_send(sd, &datagram, sizeof(datagram), NULL);
+    
+    return -1;
+}
+
+int wait_and_parse_syn_ack(mysocket_t sd, context_t *ctx) {
+    STCPHeader datagram;
+    
+    // TODO: ... build the datagram ...
+
+    ctx->sending_window_last_ackd_byte = datagram.th_ack; /*seqx + 1*/
+    ctx->recieving_window_last_received_byte = datagram.th_seq; /*seqy*/
+    ctx->sending_window_size = datagram.th_win; /* How much peer can recieve */
+    return -1;
+}
+
+
+int send_ack(mysocket_t sd, context_t* ctx) {
+    return -1;
+}
+
+int wait_and_parse_ack(mysocket_t sd, context_t* ctx) {
+    return -1;
+}
+/* End helper functions */
 
 /* generate random initial sequence number for an STCP connection */
 static void generate_initial_seq_num(context_t *ctx)
@@ -97,8 +196,7 @@ static void generate_initial_seq_num(context_t *ctx)
     /* please don't change this! */
     ctx->initial_sequence_num = 1;
 #else
-    /* you have to fill this up */
-    ctx->initial_sequence_num = (unsigned int) rand();
+    ctx->initial_sequence_num = (unsigned int) rand(); // TODO: gotta set to [0, 255]!
 #endif
 }
 

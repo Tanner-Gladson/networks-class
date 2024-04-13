@@ -98,7 +98,7 @@ static void generate_initial_seq_num(context_t *ctx)
     ctx->initial_sequence_num = 1;
 #else
     /* you have to fill this up */
-    /*ctx->initial_sequence_num =;*/
+    ctx->initial_sequence_num = (unsigned int) rand();
 #endif
 }
 

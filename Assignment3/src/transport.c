@@ -138,20 +138,21 @@ int send_syn(mysocket_t sd, context_t *ctx) {
     datagram.th_win = ctx->recieving_window_size;
 
     // Send over network
-    stcp_network_send(sd, &datagram, sizeof(datagram), NULL);
+    send_STCP_datagram_over_network(sd, &datagram, sizeof(datagram));
     return -1;
 }
 
 int wait_and_parse_syn(mysocket_t sd, context_t* ctx) {
-    STCPHeader datagram;
+    uint8_t buffer[sizeof(STCPHeader) + STCP_MSS];
+    read_STCP_datagram_from_network(sd, buffer, sizeof(STCPHeader) + STCP_MSS);
+    STCPHeader* datagram = buffer;
 
-    // TODO: ... build the datagram from network data ...
+    // ... TODO: assert that flags are correct ...
 
-    ctx->sending_window_size = datagram.th_win; /* How much peer can recieve */
-    ctx->recieving_window_last_received_byte = datagram.th_seq; /*seqx*/
+    ctx->recieving_window_last_received_byte = datagram->th_seq; /*seqx*/
+    ctx->sending_window_size = datagram->th_win;
     return -1;
 }
-
 
 int send_syn_ack(mysocket_t sd, context_t* ctx) {
     STCPHeader datagram;
@@ -161,30 +162,79 @@ int send_syn_ack(mysocket_t sd, context_t* ctx) {
     datagram.th_win = ctx->recieving_window_size;
 
     // Send over network
-    stcp_network_send(sd, &datagram, sizeof(datagram), NULL);
-    
+    send_STCP_datagram_over_network(sd, &datagram, sizeof(datagram));
     return -1;
 }
 
 int wait_and_parse_syn_ack(mysocket_t sd, context_t *ctx) {
-    STCPHeader datagram;
-    
-    // TODO: ... build the datagram ...
+    uint8_t buffer[sizeof(STCPHeader) + STCP_MSS];
+    read_STCP_datagram_from_network(sd, buffer, sizeof(STCPHeader) + STCP_MSS);
+    STCPHeader* datagram = buffer;
 
-    ctx->sending_window_last_ackd_byte = datagram.th_ack; /*seqx + 1*/
-    ctx->recieving_window_last_received_byte = datagram.th_seq; /*seqy*/
-    ctx->sending_window_size = datagram.th_win; /* How much peer can recieve */
+    // ... TODO: assert that flags are correct ...
+
+    ctx->sending_window_last_ackd_byte = datagram->th_ack; /*seqx + 1*/
+    ctx->recieving_window_last_received_byte = datagram->th_seq; /*seqy*/
+    ctx->sending_window_size = datagram->th_win;
     return -1;
 }
 
-
 int send_ack(mysocket_t sd, context_t* ctx) {
-    return -1;
+    STCPHeader datagram;
+    datagram.th_ack = ctx->recieving_window_last_received_byte + 1; /*seqy + 1*/
+    datagram.th_flags = TH_ACK;
+    datagram.th_win = ctx->recieving_window_size;
+    
+    // Send over network
+    send_STCP_datagram_over_network(sd, &datagram, sizeof(datagram));    return -1;
 }
 
 int wait_and_parse_ack(mysocket_t sd, context_t* ctx) {
+    uint8_t buffer[sizeof(STCPHeader) + STCP_MSS];
+    read_STCP_datagram_from_network(sd, buffer, sizeof(STCPHeader) + STCP_MSS);
+    STCPHeader* datagram = buffer;
+
+    // ... TODO: assert that flags are correct ...
+
+    ctx->sending_window_last_ackd_byte = datagram->th_ack; /*seqy + 1*/
+    ctx->sending_window_size = datagram->th_win;
     return -1;
 }
+
+/* Returns size of bytes read (header + payload). Guaruntees valid-length header.
+ Returns the header in host-byte order */
+ssize_t read_STCP_datagram_from_network(mysocket_t sd, void *dst_buffer, size_t buffer_len) {
+    assert(buffer_len >= sizeof(STCPHeader) + STCP_MSS);
+    assert(dst_buffer);
+
+    // TODO: Do I need to add a check that I've recieved an entire datagram?
+    ssize_t num_read = stcp_network_recv(sd, dst_buffer, buffer_len);
+    assert(num_read >= sizeof(STCPHeader));
+
+    // Modify host byte order in place
+    STCPHeader* datagram = (STCPHeader*) dst_buffer;
+    datagram->th_seq = ntohl(datagram->th_seq);
+    datagram->th_ack = ntohl(datagram->th_ack);
+    datagram->th_win = ntohs(datagram->th_win);
+    return num_read;
+}
+
+/* Sends an stcp datagram over the network, accepts STCP header in HOST BYTE order*/
+void send_STCP_datagram_over_network(mysocket_t sd, const void *src, size_t src_len) {
+    assert(src_len >= sizeof(STCPHeader));
+    assert(src);
+
+    // We need to convert byte orders
+    uint8_t buf[src_len];
+    memcpy(buf, src, src_len);
+
+    STCPHeader* datagram = buf;
+    datagram->th_seq = htonl(datagram->th_seq);
+    datagram->th_ack = htonl(datagram->th_ack);
+    datagram->th_win = htons(datagram->th_win);
+    stcp_network_send(sd, &buf, src_len, NULL);
+}
+
 /* End helper functions */
 
 /* generate random initial sequence number for an STCP connection */
@@ -196,7 +246,8 @@ static void generate_initial_seq_num(context_t *ctx)
     /* please don't change this! */
     ctx->initial_sequence_num = 1;
 #else
-    ctx->initial_sequence_num = (unsigned int) rand(); // TODO: gotta set to [0, 255]!
+    /* init seq number bounded between [0, 255] */
+    ctx->initial_sequence_num = (tcp_seq) (rand() >> 24);
 #endif
 }
 

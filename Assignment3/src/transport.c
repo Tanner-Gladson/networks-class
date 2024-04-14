@@ -24,8 +24,10 @@
 static const uint16_t FIXED_WINDOW_SIZE = 3072;
 
 enum { 
-    CSTATE_ESTABLISHED
-
+    CSTATE_ESTABLISHED,
+    CSTATE_ONLY_PEER_FINISHED,
+    CSTATE_ONLY_SELF_FINISHED,
+    CSTATE_BOTH_FINISHED
 };    /* obviously you should have more states */
 
 
@@ -38,14 +40,12 @@ typedef struct
     tcp_seq initial_sequence_num; /* Sending window initial sequence number (i think?)*/
 
     /* any other connection-wide global variables go here */
-    uint16_t sending_window_size; /* Update after receiving datagram from peer */
-    tcp_seq sending_window_last_ackd_byte; /* Update after receiving ACK from peer */
-    uint32_t sending_window_num_unacked_bytes; /* Update after sending to peer */
+    uint16_t cwnd_size;               /* Max Size. Update after receiving datagram from peer */
+    tcp_seq cwnd_last_ackd_byte;      /* Update after receiving ACK from peer */
+    uint16_t cwnd_num_unacked_bytes;  /* Update after sending to peer and when recieve ACK */
 
-    // TODO: why should I keep track of recieve window again?
-
-    uint16_t recieving_window_size; /* Set during ctx initialization, send to peer with all packets */
-    tcp_seq recieving_window_last_received_byte; /* Update after receiving from peer*/
+    uint16_t rwnd_size; /* Set during ctx initialization, send to peer with all packets */
+    tcp_seq rwnd_last_received_byte; /* Update after receiving from peer*/
 } context_t;
 
 
@@ -65,7 +65,8 @@ void transport_init(mysocket_t sd, bool_t is_active)
     assert(ctx);
 
     generate_initial_seq_num(ctx);
-    ctx->recieving_window_size = FIXED_WINDOW_SIZE;
+    ctx->rwnd_size = FIXED_WINDOW_SIZE;
+    ctx->cwnd_last_ackd_byte = ctx->initial_sequence_num; // Artificial
 
     /* XXX: you should send a SYN packet here if is_active, or wait for one
      * to arrive if !is_active.  after the handshake completes, unblock the
@@ -129,16 +130,34 @@ void transport_init(mysocket_t sd, bool_t is_active)
 }
 
 /* Helper Function */
+void handle_ack(context_t *ctx, STCPHeader* header) {
+    tcp_seq ackd_byte = header->th_ack;
+    tcp_seq num_ackd;
+
+    // sometimes we can overflow the sequence space
+    if (ackd_byte < ctx->cwnd_last_ackd_byte) {
+        num_ackd = ackd_byte + (UINT32_MAX - ctx->cwnd_last_ackd_byte); 
+    } else {
+        num_ackd = ackd_byte - ctx->cwnd_last_ackd_byte;
+    }
+    
+    // the right-hand pointer of sending window remains the same
+    ctx->cwnd_num_unacked_bytes -= num_ackd;
+    ctx->cwnd_last_ackd_byte += num_ackd;
+    ctx->cwnd_size = header->th_win;
+}
+
 int send_syn(mysocket_t sd, context_t *ctx) {
     // Create the packet
-    STCPHeader datagram;
-    datagram.th_seq = ctx->initial_sequence_num; /*seqx*/
+    STCPHeader datagram; 
+    datagram.th_seq = get_next_unsent_seq_num(ctx); /*seqx*/
     datagram.th_ack = 0;
     datagram.th_flags = TH_SYN;
-    datagram.th_win = ctx->recieving_window_size;
+    datagram.th_win = ctx->rwnd_size;
 
     // Send over network
     send_STCP_datagram_over_network(sd, &datagram, sizeof(datagram));
+    ctx->cwnd_num_unacked_bytes += 1; // syn is one byte of seq space
     return 0;
 }
 
@@ -151,20 +170,21 @@ int wait_and_parse_syn(mysocket_t sd, context_t* ctx) {
         return -1; // Should be a SYN
     }
 
-    ctx->recieving_window_last_received_byte = datagram->th_seq; /*seqx*/
-    ctx->sending_window_size = datagram->th_win;
+    ctx->rwnd_last_received_byte = datagram->th_seq; /*seqx*/
+    ctx->cwnd_size = datagram->th_win;
     return 0;
 }
 
 int send_syn_ack(mysocket_t sd, context_t* ctx) {
     STCPHeader datagram;
-    datagram.th_seq = ctx->initial_sequence_num; /*seqy*/
-    datagram.th_ack = ctx->recieving_window_last_received_byte + 1; /*seqx + 1*/
+    datagram.th_seq = get_next_unsent_seq_num(ctx); /*seqy*/
+    datagram.th_ack = ctx->rwnd_last_received_byte + 1; /*seqx + 1*/
     datagram.th_flags = TH_SYN | TH_ACK;
-    datagram.th_win = ctx->recieving_window_size;
+    datagram.th_win = ctx->rwnd_size;
 
     // Send over network
     send_STCP_datagram_over_network(sd, &datagram, sizeof(datagram));
+    ctx->cwnd_num_unacked_bytes += 1; // syn is one byte of seq space
     return 0;
 }
 
@@ -177,17 +197,18 @@ int wait_and_parse_syn_ack(mysocket_t sd, context_t *ctx) {
         return -1; // Should be a SYN and ACK
     }
 
-    ctx->sending_window_last_ackd_byte = datagram->th_ack; /*seqx + 1*/
-    ctx->recieving_window_last_received_byte = datagram->th_seq; /*seqy*/
-    ctx->sending_window_size = datagram->th_win;
+    ctx->rwnd_last_received_byte = datagram->th_seq; /*seqy*/
+    handle_ack(ctx, datagram);
     return 0;
 }
 
 int send_ack(mysocket_t sd, context_t* ctx) {
+
     STCPHeader datagram;
-    datagram.th_ack = ctx->recieving_window_last_received_byte + 1; /*seqy + 1*/
+    datagram.th_seq = get_next_unsent_seq_num(ctx);
+    datagram.th_ack = ctx->rwnd_last_received_byte + 1; /*seqy + 1*/
     datagram.th_flags = TH_ACK;
-    datagram.th_win = ctx->recieving_window_size;
+    datagram.th_win = ctx->rwnd_size;
     
     // Send over network
     send_STCP_datagram_over_network(sd, &datagram, sizeof(datagram));
@@ -203,8 +224,8 @@ int wait_and_parse_ack(mysocket_t sd, context_t* ctx) {
         return -1; // Should be an ACK
     }
 
-    ctx->sending_window_last_ackd_byte = datagram->th_ack; /*seqy + 1*/
-    ctx->sending_window_size = datagram->th_win;
+    ctx->cwnd_last_ackd_byte = datagram->th_ack; /*seqy + 1*/
+    ctx->cwnd_size = datagram->th_win;
     return 0;
 }
 
@@ -239,7 +260,7 @@ void send_STCP_datagram_over_network(mysocket_t sd, const void *src, size_t src_
     datagram->th_seq = htonl(datagram->th_seq);
     datagram->th_ack = htonl(datagram->th_ack);
     datagram->th_win = htons(datagram->th_win);
-    stcp_network_send(sd, &buf, src_len, NULL);
+    stcp_network_send(sd, buf, src_len, NULL);
 }
 
 /* End helper functions */
@@ -281,21 +302,103 @@ static void control_loop(mysocket_t sd, context_t *ctx)
         /* check whether it was the network, app, or a close request */
         if (event & APP_DATA)
         {
-            /* the application has requested that data be sent */
-            /* see stcp_app_recv() */
+            handle_application_event(sd, ctx);
         }
 
         if (event & NETWORK_DATA) {
-            /* received data from STCP peer */
+            handle_network_event(sd, ctx);
         }
 
         if (event & APP_CLOSE_REQUESTED) {
-
+            handle_app_close_request(sd, ctx);
         }
 
         /* etc. */
     }
 }
+
+/* HELPER FUNCTIONS */
+
+void handle_application_event(mysocket_t sd, context_t *ctx) {
+    // Keep payload and buffer contigious
+    uint8_t     buffer[sizeof(STCPHeader) + STCP_MSS] = {0};
+    STCPHeader* header_ptr = (STCPHeader*) buffer;
+    uint8_t*    payload_ptr = buffer + sizeof(STCPHeader);
+
+    size_t payload_size = stcp_app_recv(sd, payload_ptr, STCP_MSS);
+
+    /* don't want to overload our peer's window */
+    while (payload_size > ctx->cwnd_size - ctx->cwnd_num_unacked_bytes) {
+        stcp_wait_for_event(sd, NETWORK_DATA, NULL);
+        handle_network_event(sd, ctx);
+    }
+
+    header_ptr->th_seq = get_next_unsent_seq_num(ctx);
+    header_ptr->th_win = ctx->rwnd_size;
+    header_ptr->th_flags = 0;
+
+    send_STCP_datagram_over_network(sd, header_ptr, sizeof(STCPHeader) + payload_size);
+    ctx->cwnd_num_unacked_bytes += payload_size;
+}
+
+void handle_network_event(mysocket_t sd, context_t *ctx) {
+    // Read the data in from the network
+    uint8_t     buffer[sizeof(STCPHeader) + STCP_MSS];
+    STCPHeader* header_ptr = (STCPHeader*) buffer;
+    uint8_t*    payload_ptr = buffer + sizeof(STCPHeader);
+    ssize_t total_size = read_STCP_datagram_from_network(sd, buffer, sizeof(buffer));
+
+    if (header_ptr->th_flags & TH_ACK) {
+        handle_ack(ctx, header_ptr);
+    }
+
+    bool_t requires_ack = 0;
+    ssize_t payload_size = total_size - sizeof(STCPHeader);
+    if (payload_size > 0) {
+        stcp_app_send(sd, payload_ptr, payload_size);
+        ctx->rwnd_last_received_byte += payload_size;
+        requires_ack = 1;
+    }
+
+    if (header_ptr->th_flags & TH_FIN) {
+        update_ctx_after_peer_finish(sd, ctx);
+        ctx->rwnd_last_received_byte += 1;
+        requires_ack = 1;
+    }
+
+    if (requires_ack) {
+        send_ack(sd, ctx);
+    }
+}
+
+void handle_app_close_request(mysocket_t sd, context_t *ctx) {
+    // Create the packet
+    STCPHeader datagram; 
+    datagram.th_seq = get_next_unsent_seq_num(ctx);
+    datagram.th_ack = 0;
+    datagram.th_flags = TH_FIN;
+    datagram.th_win = ctx->rwnd_size;
+
+    // Send over network
+    send_STCP_datagram_over_network(sd, &datagram, sizeof(datagram));
+    ctx->cwnd_num_unacked_bytes += 1; // syn is one byte of seq space
+    return 0;
+}
+
+void update_ctx_after_peer_finish(mysocket_t sd, context_t *ctx) {
+    if (ctx->connection_state == CSTATE_ONLY_SELF_FINISHED) {
+        ctx->connection_state = CSTATE_BOTH_FINISHED;
+        ctx->done = 1;
+    } else {
+        ctx->connection_state = CSTATE_ONLY_PEER_FINISHED;
+    }
+}
+
+tcp_seq get_next_unsent_seq_num(context_t *ctx) {
+    return ctx->cwnd_last_ackd_byte + ctx->cwnd_num_unacked_bytes; 
+}
+
+/* END HELPER FUNCTIONS */
 
 
 /**********************************************************************/

@@ -449,14 +449,14 @@ void handle_network_event(mysocket_t sd, context_t *ctx)
     STCPHeader *header_ptr = (STCPHeader *)buffer;
     uint8_t *payload_ptr = buffer + sizeof(STCPHeader);
     ssize_t total_size = read_STCP_datagram_from_network(sd, buffer, sizeof(buffer));
+    // as always, update the cwnd
+    ctx->cwnd_size = header_ptr->th_win;
 
     // handle ack
     if (header_ptr->th_flags & TH_ACK)
     {
         handle_ack(ctx, header_ptr);
     }
-
-    bool_t requires_ack = 0;
 
     // handle data
     ssize_t payload_size = total_size - sizeof(STCPHeader);

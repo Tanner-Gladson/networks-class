@@ -361,7 +361,7 @@ void handle_network_event(mysocket_t sd, context_t *ctx) {
     }
 
     if (header_ptr->th_flags & TH_FIN) {
-        update_ctx_after_peer_finish(sd, ctx);
+        update_ctx_after_peer_finish(ctx);
         ctx->rwnd_last_received_byte += 1;
         requires_ack = 1;
     }
@@ -382,15 +382,25 @@ void handle_app_close_request(mysocket_t sd, context_t *ctx) {
     // Send over network
     send_STCP_datagram_over_network(sd, &datagram, sizeof(datagram));
     ctx->cwnd_num_unacked_bytes += 1; // syn is one byte of seq space
+    update_ctx_after_self_finish(ctx);
     return 0;
 }
 
-void update_ctx_after_peer_finish(mysocket_t sd, context_t *ctx) {
+void update_ctx_after_peer_finish(context_t *ctx) {
     if (ctx->connection_state == CSTATE_ONLY_SELF_FINISHED) {
         ctx->connection_state = CSTATE_BOTH_FINISHED;
         ctx->done = 1;
     } else {
         ctx->connection_state = CSTATE_ONLY_PEER_FINISHED;
+    }
+}
+
+void update_ctx_after_self_finish(context_t *ctx) {
+    if (ctx->connection_state == CSTATE_ONLY_PEER_FINISHED) {
+        ctx->connection_state = CSTATE_BOTH_FINISHED;
+        ctx->done = 1;
+    } else {
+        ctx->connection_state = CSTATE_ONLY_SELF_FINISHED;
     }
 }
 

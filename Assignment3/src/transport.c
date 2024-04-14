@@ -205,9 +205,12 @@ int send_syn(mysocket_t sd, context_t *ctx)
 int wait_and_parse_syn(mysocket_t sd, context_t *ctx)
 {
     uint8_t buffer[sizeof(STCPHeader) + STCP_MSS];
-    read_STCP_datagram_from_network(sd, buffer, sizeof(STCPHeader) + STCP_MSS);
-    STCPHeader *datagram = (STCPHeader*) buffer;
+    ssize_t num_read = read_STCP_datagram_from_network(sd, buffer, sizeof(STCPHeader) + STCP_MSS);
+    if (num_read == -1) {
+        return -1;
+    }
 
+    STCPHeader *datagram = (STCPHeader*) buffer;
     if (!(datagram->th_flags & TH_SYN))
     {
         return -1; // Should be a SYN
@@ -234,9 +237,12 @@ int send_syn_ack(mysocket_t sd, context_t *ctx)
 int wait_and_parse_syn_ack(mysocket_t sd, context_t *ctx)
 {
     uint8_t buffer[sizeof(STCPHeader) + STCP_MSS];
-    read_STCP_datagram_from_network(sd, buffer, sizeof(STCPHeader) + STCP_MSS);
-    STCPHeader *datagram = (STCPHeader *) buffer;
+    ssize_t num_read = read_STCP_datagram_from_network(sd, buffer, sizeof(STCPHeader) + STCP_MSS);
+    if (num_read == -1) {
+        return -1;
+    }
 
+    STCPHeader *datagram = (STCPHeader *) buffer;
     if (!(datagram->th_flags & TH_SYN && datagram->th_flags & TH_ACK))
     {
         return -1; // Should be a SYN and ACK
@@ -264,9 +270,12 @@ int send_ack(mysocket_t sd, context_t *ctx)
 int wait_and_parse_ack(mysocket_t sd, context_t *ctx)
 {
     uint8_t buffer[sizeof(STCPHeader) + STCP_MSS];
-    read_STCP_datagram_from_network(sd, buffer, sizeof(STCPHeader) + STCP_MSS);
-    STCPHeader *datagram = (STCPHeader *) buffer;
+    ssize_t num_read = read_STCP_datagram_from_network(sd, buffer, sizeof(STCPHeader) + STCP_MSS);
+    if (num_read == -1) {
+        return -1;
+    }
 
+    STCPHeader *datagram = (STCPHeader *) buffer;
     if (!(datagram->th_flags & TH_ACK))
     {
         return -1; // Should be an ACK
@@ -286,8 +295,12 @@ ssize_t read_STCP_datagram_from_network(mysocket_t sd, void *dst_buffer, size_t 
 
     // TODO: Do I need to add a check that I've recieved an entire datagram?
     ssize_t num_read = stcp_network_recv(sd, dst_buffer, buffer_len);
-    assert(num_read >= 0);
-    assert((size_t) num_read >= sizeof(STCPHeader));
+    if (num_read < 0) {
+        return -1;
+    }
+    if ((size_t) num_read < sizeof(STCPHeader)) {
+        return -1;
+    }
 
     // Modify host byte order in place
     STCPHeader *datagram = (STCPHeader *)dst_buffer;

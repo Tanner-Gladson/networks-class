@@ -265,19 +265,7 @@ int wait_and_parse_syn_ack(mysocket_t sd, context_t *ctx)
 }
 
 uint16_t get_rwnd_size(context_t *ctx) {
-    uint16_t num_unproccessed;
-    if (ctx->rwnd_last_processed_byte <= ctx->rwnd_last_received_byte )
-    {
-        num_unproccessed = ctx->rwnd_last_received_byte - ctx->rwnd_last_processed_byte;
-    }
-    else
-    {
-        // overflow case
-        num_unproccessed = ctx->rwnd_last_received_byte + (UINT32_MAX - ctx->rwnd_last_processed_byte);
-    }
-
-    assert(num_unproccessed <= UINT16_MAX);
-    return ctx->rwnd_max_size - (uint16_t) num_unproccessed;
+    return ctx->rwnd_max_size;
 }
 
 int send_ack(mysocket_t sd, context_t *ctx)
@@ -415,6 +403,12 @@ static void control_loop(mysocket_t sd, context_t *ctx)
 }
 
 /* HELPER FUNCTIONS */
+int min(size_t a, size_t b) {
+    if (a < b) {
+        return a;
+    }
+    return b;
+}
 
 void handle_application_event(mysocket_t sd, context_t *ctx)
 {
@@ -425,21 +419,23 @@ void handle_application_event(mysocket_t sd, context_t *ctx)
 
     // data from application limited to max payload size
     size_t payload_size = stcp_app_recv(sd, payload_ptr, STCP_MSS);
-    
-    // can't overload our peer's window
-    assert(payload_size <= UINT16_MAX); // quick check before cast!
-    while ((uint16_t) payload_size > ctx->cwnd_size - ctx->cwnd_num_unacked_bytes)
-    {
-        stcp_wait_for_event(sd, NETWORK_DATA, NULL);
-        handle_network_event(sd, ctx);
+
+    // Chop the payload into smaller if necessary
+    while (payload_size > 0) {
+        size_t sendable_bytes = min(payload_size, ctx->cwnd_size - ctx->cwnd_num_unacked_bytes);
+        if (sendable_bytes == 0) {
+            stcp_wait_for_event(sd, NETWORK_DATA, NULL);
+            handle_network_event(sd, ctx);
+            continue;
+        }
+
+        header_ptr->th_seq = get_next_unsent_seq_num(ctx);
+        header_ptr->th_win = get_rwnd_size(ctx);
+        header_ptr->th_flags = 0;
+        send_STCP_datagram_over_network(sd, header_ptr, sizeof(STCPHeader) + payload_size);
+        ctx->cwnd_num_unacked_bytes += sendable_bytes;
+        payload_size -= sendable_bytes;
     }
-
-    header_ptr->th_seq = get_next_unsent_seq_num(ctx);
-    header_ptr->th_win = get_rwnd_size(ctx);
-    header_ptr->th_flags = 0;
-
-    send_STCP_datagram_over_network(sd, header_ptr, sizeof(STCPHeader) + payload_size);
-    ctx->cwnd_num_unacked_bytes += payload_size;
 }
 
 void handle_network_event(mysocket_t sd, context_t *ctx)
@@ -484,6 +480,7 @@ void handle_network_event(mysocket_t sd, context_t *ctx)
         if (!ctx->is_active) {
             send_fin(sd, ctx);
         }
+        stcp_fin_received(sd);
     }
 }
 

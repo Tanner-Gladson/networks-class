@@ -409,12 +409,6 @@ int min(size_t a, size_t b) {
     }
     return b;
 }
-int min(size_t a, size_t b) {
-    if (a < b) {
-        return a;
-    }
-    return b;
-}
 
 void handle_application_event(mysocket_t sd, context_t *ctx)
 {

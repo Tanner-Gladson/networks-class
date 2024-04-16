@@ -266,6 +266,7 @@ int wait_and_parse_syn_ack(mysocket_t sd, context_t *ctx)
 
 uint16_t get_rwnd_size(context_t *ctx) {
     return ctx->rwnd_max_size;
+    return ctx->rwnd_max_size;
 }
 
 int send_ack(mysocket_t sd, context_t *ctx)
@@ -409,6 +410,12 @@ int min(size_t a, size_t b) {
     }
     return b;
 }
+int min(size_t a, size_t b) {
+    if (a < b) {
+        return a;
+    }
+    return b;
+}
 
 void handle_application_event(mysocket_t sd, context_t *ctx)
 {
@@ -428,12 +435,13 @@ void handle_application_event(mysocket_t sd, context_t *ctx)
         handle_network_event(sd, ctx);
     }
 
-    header_ptr->th_seq = get_next_unsent_seq_num(ctx);
-    header_ptr->th_win = get_rwnd_size(ctx);
-    header_ptr->th_flags = 0;
-
-    send_STCP_datagram_over_network(sd, header_ptr, sizeof(STCPHeader) + payload_size);
-    ctx->cwnd_num_unacked_bytes += payload_size;
+        header_ptr->th_seq = get_next_unsent_seq_num(ctx);
+        header_ptr->th_win = get_rwnd_size(ctx);
+        header_ptr->th_flags = 0;
+        send_STCP_datagram_over_network(sd, header_ptr, sizeof(STCPHeader) + payload_size);
+        ctx->cwnd_num_unacked_bytes += sendable_bytes;
+        payload_size -= sendable_bytes;
+    }
 }
 
 void handle_network_event(mysocket_t sd, context_t *ctx)
@@ -478,6 +486,7 @@ void handle_network_event(mysocket_t sd, context_t *ctx)
         if (!ctx->is_active) {
             send_fin(sd, ctx);
         }
+        stcp_fin_received(sd);
         stcp_fin_received(sd);
     }
 }

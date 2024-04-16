@@ -417,17 +417,15 @@ void handle_application_event(mysocket_t sd, context_t *ctx)
     STCPHeader *header_ptr = (STCPHeader *)buffer;
     uint8_t *payload_ptr = buffer + sizeof(STCPHeader);
 
-    // data from application limited to max payload size
-    size_t payload_size = stcp_app_recv(sd, payload_ptr, STCP_MSS);
-
-    // can't overload our peer's window
-    assert(payload_size <= UINT16_MAX); // quick check before cast!
-    while ((uint16_t) payload_size > ctx->cwnd_size - ctx->cwnd_num_unacked_bytes)
+    // check if we can even send data
+    while (ctx->cwnd_size - ctx->cwnd_num_unacked_bytes <= 0)
     {
         stcp_wait_for_event(sd, NETWORK_DATA, NULL);
         handle_network_event(sd, ctx);
     }
 
+    size_t max_payload = min(STCP_MSS, ctx->cwnd_size - ctx->cwnd_num_unacked_bytes);
+    size_t payload_size = stcp_app_recv(sd, payload_ptr, max_payload);
     header_ptr->th_seq = get_next_unsent_seq_num(ctx);
     header_ptr->th_win = get_rwnd_size(ctx);
     header_ptr->th_flags = 0;
